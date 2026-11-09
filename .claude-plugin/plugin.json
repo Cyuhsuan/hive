@@ -1,6 +1,6 @@
 {
   "name": "implement-swarm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "implement-spec 實作階段的 agent 拓撲面板：每個子代理的票、模型、階段、工具活動與結果，像指揮台一樣即時呈現。",
   "types": "./types/index.d.ts",
   "license": "MIT",
