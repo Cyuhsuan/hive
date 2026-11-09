@@ -178,3 +178,22 @@ test('cards carry the ticket title, failed ones first, done ones on one line', a
   expect(await ui.find({ type: 'Text', text: /已派 3 · 已 merge 0/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('any agent type whose prompt points at a ticket opens a card, Windows path included', async ($, on) => {
+  mock.clock(on, { now: 1_700_000_000_000 })
+  on('command.register', () => ({ value: { command: 'swarm' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'agent-1' }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.agent.spawn({
+    prompt: 'Build .scratch\\feat\\issues\\09-export.md',
+    description: 'export',
+    subagentType: 'general-purpose',
+  } as never)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /general-purpose · sonnet 5.5/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /09/ })).toBeDefined()
+  await ui.unmount()
+})

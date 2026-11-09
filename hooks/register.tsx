@@ -55,6 +55,9 @@ const COMMIT_RE = /\bgit commit\b/
 const TICKET_PATH_RE = /((?:[^\s`'"()<>]*\/)?issues)\/(\d+)(-[^\s`'"()<>]*?)?\.md/
 const TICKET_FILE_RE = /^(\d+)(?:-(.*))?\.md$/
 
+/** Paths are matched with `/` only, so a Windows path is read the same way. */
+const toPosix = (text: string): string => text.replace(/\\/g, '/')
+
 function shortModel(model: string | undefined): string {
   if (!model) return '?'
   const m = model.match(/(fable|opus|sonnet|haiku)[-_ ]?(\d+(?:[-_.]\d+)?)?/i)
@@ -64,7 +67,8 @@ function shortModel(model: string | undefined): string {
 }
 
 function shortType(type: string): string {
-  return type.replace(/^.*:/, '').replace(/^ticket-implementer$/, 'implementer').replace(/^code-reviewer$/, 'reviewer')
+  // Any agent type works: only a plugin's `name:` prefix is dropped.
+  return type.replace(/^.*:/, '')
 }
 
 function fmtDuration(ms: number): string {
@@ -120,7 +124,7 @@ function ticketNumber(ticket: string | undefined): string | undefined {
 
 function phaseOfCall(agent: SwarmAgent, tool: string, args: Record<string, unknown>): AgentPhase {
   if (agent.phase === 'done' || agent.phase === 'failed') return agent.phase
-  if (/code-reviewer/.test(agent.type)) return 'reviewing'
+  if (/review/i.test(agent.type)) return 'reviewing'
   if (tool === 'Bash') {
     const cmd = String(args['command'] ?? '')
     if (COMMIT_RE.test(cmd)) return 'committing'
@@ -129,14 +133,15 @@ function phaseOfCall(agent: SwarmAgent, tool: string, args: Record<string, unkno
     return agent.phase === 'spawned' ? 'reading' : agent.phase
   }
   if (tool === 'Edit' || tool === 'Write' || tool === 'NotebookEdit') return 'editing'
-  if (/serena_repl$/.test(tool) && /\bs\.edit\./.test(String(args['code'] ?? ''))) return 'editing'
+  if (/(edit|write|replace|insert)/i.test(tool.replace(/^mcp__[^_]+__/, ''))) return 'editing'
+  if (typeof args['code'] === 'string' && /\.edit\./.test(args['code'])) return 'editing'
   return agent.phase === 'spawned' ? 'reading' : agent.phase
 }
 
 function describeCall(tool: string, args: Record<string, unknown>): string {
   const name = tool.replace(/^mcp__[^_]+__/, '')
   const path = args['file_path'] ?? args['path'] ?? args['notebook_path']
-  if (typeof path === 'string') return `${name} ${path.split('/').slice(-2).join('/')}`
+  if (typeof path === 'string') return `${name} ${toPosix(path).split('/').slice(-2).join('/')}`
   if (tool === 'Bash') return `$ ${String(args['command'] ?? '').replace(/\s+/g, ' ')}`
   if (typeof args['pattern'] === 'string') return `${name} /${args['pattern']}/`
   if (typeof args['skill'] === 'string') return `${name} ${args['skill']}`
@@ -319,13 +324,14 @@ async function refreshFeature($: EngineInterface, issuesDir?: string) {
 
 /** Which ticket a prompt or a skill argument points at, and its issues folder. */
 function ticketRef(text: string): { issuesDir: string; ticket: string } | undefined {
-  const m = text.match(TICKET_PATH_RE)
+  const m = toPosix(text).match(TICKET_PATH_RE)
   if (!m) return undefined
   return { issuesDir: m[1]!, ticket: `${m[2]}${m[3] ?? ''}` }
 }
 
 /** The issues folder a spec path implies: `.scratch/<feature>/spec.md` → `.scratch/<feature>/issues`. */
-function issuesDirOfArgs(args: string): string | undefined {
+function issuesDirOfArgs(raw: string): string | undefined {
+  const args = toPosix(raw)
   const direct = args.match(/([^\s`'"()<>]*\/issues)(?:\/|\b)/)?.[1]
   if (direct) return direct
   const spec = args.match(/([^\s`'"()<>]+)\/(?:spec|design)\.md/)?.[1]
@@ -420,9 +426,9 @@ export const register: Register = on => {
       startedAt: at,
       parentId: e.parentAgentId,
     }
-    const looksLikeImplement = /ticket-implementer|code-reviewer|merger/i.test(
-      `${e.subagentType} ${e.description}`,
-    )
+    // No agent type is required: a prompt that points at a ticket file is enough.
+    const looksLikeImplement =
+      ref !== undefined || /implement|review|merg/i.test(`${e.subagentType} ${e.description}`)
     let wasActive = true
     await update($, swarm, s => {
       wasActive = s.isActive

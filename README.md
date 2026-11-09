@@ -1,6 +1,6 @@
 # implement-swarm
 
-implement-spec 實作階段的即時指揮台。當主 session 呼叫 `/implement-spec`（或派出 `ticket-implementer`、`code-reviewer`）時，自動打開一個面板，用拓撲圖的方式呈現：
+implement-spec 實作階段的即時指揮台。當主 session 呼叫 `/implement-spec`，或派出任何 prompt 裡指到票檔（`…/issues/NN-*.md`）的子代理時，自動打開一個面板，用拓撲圖的方式呈現：
 
 - **feature 框**：整體進度條（已 resolved 的票算整張，進行中的票按勾掉的驗收項目比例算）、票數與目前步驟，下面每個時間步一列。正在做的那一步會寫出票名與驗收數，其他步驟只畫「圖示 + 票號」。
 - **lead 框**：主 session 與它的模型，以及已派出幾個子代理、已 merge 幾張票。
@@ -20,7 +20,11 @@ implement-spec 實作階段的即時指揮台。當主 session 呼叫 `/implemen
 
 面板窄於 40 欄時自動精簡：卡片標題只留票號與階段，log 只留票號，框與拓撲線都保留。
 
-階段是從子代理的工具呼叫推估的：Edit／Write 或 Serena 的 `s.edit` 算改碼，`dotnet test`、`npm test` 等算測試，`git merge` 算 merge，`git commit` 算 commit。`code-reviewer` 一律顯示為審查。
+階段是從子代理的工具呼叫推估的：名稱含 edit／write／replace／insert 的工具算改碼，`dotnet test`、`npm test` 等算測試，`git merge` 算 merge，`git commit` 算 commit。類型名稱含 review 的子代理一律顯示為審查。
+
+## 相依
+
+沒有。這個 mod 只用 Claude Code 引擎提供的 `claude-code` 模組，不需要 npm 套件、其他 plugin、特定的 agent 類型或 MCP 伺服器，也不呼叫任何作業系統指令，macOS、Linux、Windows 都能用（路徑的 `\` 與 `/` 都認得）。
 
 ## 使用
 
