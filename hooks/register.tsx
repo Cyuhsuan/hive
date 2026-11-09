@@ -8,13 +8,9 @@ const TITLE = 'Implement swarm'
 
 const EMPTY: Swarm = { isActive: false, agents: [], log: [] }
 
-// The dock's width is the person's: kept in `$.store` so it holds across
-// sessions, asked of the surface on every open. The engine seats a dock at
-// 24 body columns at least and 45% of the terminal at most.
-const WIDTH_KEY = 'columns'
+// The dock's width is the person's: dragged at the pane's edge, never set from
+// here. The engine seats a dock at 24 body columns at least.
 const WIDTH_MIN = 24
-const WIDTH_MAX = 240
-const WIDTH_STEP = 8
 
 // Bump the tag when Swarm's fields change: an earlier version's value
 // outlives a reload and is then read as EMPTY instead of crashing the pane.
@@ -184,47 +180,11 @@ function refreshStatus($: EngineInterface, s: Swarm) {
   $.ui.status(`swarm ${live} 跑 · ${done} 完${failed ? ` · ${failed} 敗` : ''}${feat}`)
 }
 
-// ---------------------------------------------------------------- width
+// ---------------------------------------------------------------- pane
 
-function clampWidth(columns: number): number {
-  return Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, Math.round(columns)))
-}
-
-async function wantedWidth($: EngineInterface): Promise<number | undefined> {
-  try {
-    const kept = await $.store.get(WIDTH_KEY)
-    return typeof kept === 'number' && Number.isFinite(kept) ? clampWidth(kept) : undefined
-  } catch {
-    return undefined
-  }
-}
-
-/** Opens (or re-seats) the pane at the width the person asked for, if any. */
+/** Opens the pane at the surface's own width; the person drags it from there. */
 async function openPane($: EngineInterface) {
-  const columns = await wantedWidth($)
-  return $.ui.open(columns === undefined ? { id: PANE, title: TITLE } : { id: PANE, title: TITLE, columns })
-}
-
-/** Keeps a new width (`undefined`: back to the surface's own share) and re-seats the pane. */
-async function setWidth($: EngineInterface, columns: number | undefined) {
-  try {
-    if (columns === undefined) await $.store.delete(WIDTH_KEY)
-    else await $.store.set(WIDTH_KEY, clampWidth(columns))
-  } catch {
-    // a store that cannot be written still leaves this session's width set below
-  }
-  await $.ui.open(columns === undefined ? { id: PANE, title: TITLE } : { id: PANE, title: TITLE, columns: clampWidth(columns) })
-  $.ui.invalidate('ui.render')
-}
-
-/** `/swarm width 72`, `+10`, `-10`, `auto`: the width asked for, `null` when unreadable. */
-function parseWidth(arg: string, current: number | undefined): number | undefined | null {
-  if (/^(auto|reset|預設|自動)$/i.test(arg)) return undefined
-  const m = arg.match(/^([+-]?)(\d{1,3})$/)
-  if (!m) return null
-  const n = Number(m[2])
-  if (m[1] === '') return clampWidth(n)
-  return clampWidth((current ?? 60) + (m[1] === '+' ? n : -n))
+  return $.ui.open({ id: PANE, title: TITLE })
 }
 
 // ---------------------------------------------------------------- tickets
@@ -346,7 +306,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'swarm',
-      description: '打開 implement-spec 進度面板（/swarm reset 清空；/swarm width <欄數|+N|-N|auto> 調寬度；/swarm <issues 資料夾> 指定票）',
+      description: '打開 implement-spec 進度面板（/swarm reset 清空；/swarm <issues 資料夾> 指定票）',
     })
     // Keep elapsed times moving while anything runs, and re-read the tickets
     // now and then so the feature bar follows what the implementers write.
@@ -365,19 +325,6 @@ export const register: Register = on => {
 
   on('command.run', { command: 'swarm' }, async ($, e) => {
     const args = (e.args ?? '').trim()
-    const widthArg = args.match(/^(?:width|寬度?|w)\s*(.*)$/i)
-    if (widthArg) {
-      const current = await wantedWidth($)
-      const asked = parseWidth((widthArg[1] ?? '').trim(), current)
-      if (asked === null) {
-        return {
-          text: `用法：/swarm width <${WIDTH_MIN}-${WIDTH_MAX} 欄數>、+N、-N 或 auto。目前${current === undefined ? '由介面決定' : ` ${current} 欄`}。`,
-        }
-      }
-      await setWidth($, asked)
-
-      return { text: asked === undefined ? 'Swarm 面板寬度交回介面決定。' : `Swarm 面板寬度設為 ${asked} 欄（上限為視窗的 45%）。` }
-    }
     if (/^reset\b/.test(args)) {
       await update($, swarm, () => EMPTY)
       $.ui.status(undefined)
@@ -547,13 +494,12 @@ export const register: Register = on => {
   // the step chart are its agent card's dot and frame, so the two read as one.
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Text } = $.ui.resolve(e)
     const s = await read($, swarm)
     const now = await $.clock.now()
     // Every row below is sized from W, so the pane follows whatever width the
-    // person drags or keys the dock to, down to the engine's own floor.
+    // person drags the dock to, down to the engine's own floor.
     const W = Math.max(WIDTH_MIN, e.props.bodyColumns)
-    const kept = await wantedWidth($)
     const isNarrow = W < 40
     const boxInner = W - 4 // a frame and one cell of padding each side
 
@@ -777,21 +723,6 @@ export const register: Register = on => {
               <Text> {clip(line.text, Math.max(8, boxInner - whoW - (isNarrow ? 1 : 10)))}</Text>
             </Text>
           ))}
-        </Box>
-
-        <Box flexDirection="row" columnGap={1}>
-          <Text dimColor>{`寬度 ${W} 欄${kept === undefined ? '' : ' · 已固定'}`}</Text>
-          <Button key="width-narrower" plain dimColor onPress={() => void setWidth($, W - WIDTH_STEP)}>
-            ◀ 窄
-          </Button>
-          <Button key="width-wider" plain dimColor onPress={() => void setWidth($, W + WIDTH_STEP)}>
-            寬 ▶
-          </Button>
-          {kept !== undefined && (
-            <Button key="width-auto" plain dimColor onPress={() => void setWidth($, undefined)}>
-              自動
-            </Button>
-          )}
         </Box>
       </Box>
     )

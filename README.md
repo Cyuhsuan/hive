@@ -29,7 +29,7 @@ implement-spec 實作階段的即時指揮台。當主 session 呼叫 `/implemen
 ## 使用
 
 - 進入 implement 階段時自動打開；也可以隨時輸入 `/swarm` 打開，`/swarm reset` 清空上一輪的紀錄。
-- 面板寬度可以自由調整：直接拖曳面板邊界，或按面板最底下的「◀ 窄」「寬 ▶」（每次 8 欄），或輸入 `/swarm width 72`、`/swarm width +10`、`/swarm width -10`。設定的寬度會記住，跨 session 沿用；`/swarm width auto`（或面板上的「自動」）交回介面決定。介面允許的範圍是 24 欄到視窗寬度的 45%，手動拖曳過的寬度優先於指令設定的寬度。
+- 面板寬度用滑鼠拖曳面板邊界調整，面板內容會跟著重排。
 - 狀態列會顯示「swarm N 跑 · M 完」。
 - 狀態存在 session 的 `$.state`，熱重載不會遺失。
 

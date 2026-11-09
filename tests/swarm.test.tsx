@@ -79,19 +79,8 @@ test("an Edit inside the agent's loop moves its card to 改碼", async ($, on) =
   await ui.unmount()
 })
 
-test('the width buttons and /swarm width re-seat the pane at the kept width', async ($, on) => {
+test('the pane opens at the surface width and draws no width controls', async ($, on) => {
   mock.clock(on, { now: 1_700_000_000_000 })
-  // The store beneath the plugin, held here so the test reads what was kept.
-  const kept = new Map<string, unknown>()
-  on('store.get', (_, e) => ({ value: kept.get(e.key) }))
-  on('store.set', (_, e) => {
-    kept.set(e.key, e.value)
-    return { value: undefined }
-  })
-  on('store.delete', (_, e) => {
-    kept.delete(e.key)
-    return { value: undefined }
-  })
   const opens: (number | undefined)[] = []
   on('command.register', () => ({ value: { command: 'swarm' } }))
   on('ui.open', (_, e) => {
@@ -100,27 +89,12 @@ test('the width buttons and /swarm width re-seat the pane at the kept width', as
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-
-  // 80 body columns drawn: one step wider asks for 88, and the pane says it is kept.
-  let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await ui.press({ key: 'width-wider' })
-  expect(opens.at(-1)).toBe(88)
-  expect(kept.get('columns')).toBe(88)
-  await ui.unmount()
-
-  // The command sets, nudges and clamps; a later plain open asks for the kept width.
-  await $.command.run({ command: 'swarm', args: 'width 60' } as never)
-  expect(opens.at(-1)).toBe(60)
-  await $.command.run({ command: 'swarm', args: 'width -100' } as never)
-  expect(opens.at(-1)).toBe(24)
   await $.command.run({ command: 'swarm', args: '' } as never)
-  expect(opens.at(-1)).toBe(24)
-
-  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /已固定/ })).toBeDefined()
-  await ui.press({ key: 'width-auto' })
   expect(opens.at(-1)).toBeUndefined()
-  expect(kept.get('columns')).toBeUndefined()
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /寬度/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Button' })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -134,7 +108,6 @@ test('the pane draws at the narrowest dock the engine seats', async ($, on) => {
   await $.agent.spawn({ prompt: '實作 issues/07-report.md', description: '第 7 張票', subagentType: 'ticket-implementer' } as never)
 
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 24 }, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /寬度 24 欄/ })).toBeDefined()
   // Narrow: the card's title is the ticket's number and its phase.
   expect(await ui.find({ type: 'Text', text: /07 啟動中/ })).toBeDefined()
   await ui.unmount()
