@@ -1,0 +1,5 @@
+{
+  "name": "implement-swarm",
+  "owner": { "name": "Cyuhsuan" },
+  "plugins": [{ "name": "implement-swarm", "source": "./" }]
+}
