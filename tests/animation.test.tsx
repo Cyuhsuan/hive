@@ -74,6 +74,17 @@ const drawnText = async ($: any, bodyColumns = 80) => {
   await ui.unmount()
   return text
 }
+/** How often the accent is drawn outside the lead's honeycomb frame, whose cells carry tones of their own. */
+const accentsOutsideHive = (drawn: string) => {
+  // Of the hive, only the lead's own two rows are kept: its lines of cells and its two sides go.
+  const leadOf = (hive: any) => (hive.children ?? [])
+    .filter((row: any) => row?.type === 'Box')
+    .map((row: any) => ({ ...row, children: (row.children ?? []).filter((part: any) => part?.props?.width !== 2) }))
+  const strip = (node: any): any =>
+    node === null || typeof node !== 'object' ? node
+      : { ...node, children: (node.props?.key === 'hive' ? leadOf(node) : node.children ?? []).map(strip) }
+  return JSON.stringify(strip(JSON.parse(drawn))).split(`"${ACCENT}"`).length - 1
+}
 type Run = { text: string; color: string }
 /** The feature bar as drawn: its stretches of cells in order, each with its color. Lit cells are tinted (`#rrggbb`). */
 const barOf = async ($: any, bodyColumns = 80): Promise<Run[]> => {
@@ -306,8 +317,8 @@ test('the title, feature, lead and their frames are the accent, wide or narrow, 
   for (const columns of [80, 24]) {
     const text = await drawnText($, columns)
     expect(text).not.toContain('"claude"')
-    // title, feature, feature frame, feature bar, lead, and the lead's honeycomb frame (eight pieces: two rows above, two below, two rows a side)
-    expect(text.split(`"${ACCENT}"`).length - 1).toBe(13)
+    // title, feature, feature frame, feature bar, lead
+    expect(accentsOutsideHive(text)).toBe(5)
   }
 })
 
@@ -318,8 +329,8 @@ test('the observing pane draws its title, lead and lead frame in the accent', OB
 
   const text = await drawnText($)
   expect(text).not.toContain('"claude"')
-  // title, lead, and the eight pieces of the lead's honeycomb frame
-  expect(text.split(`"${ACCENT}"`).length - 1).toBe(10)
+  // title, lead
+  expect(accentsOutsideHive(text)).toBe(2)
 })
 
 test('animation off, the whole bar is the accent', OFF, async ($, on) => {
@@ -345,8 +356,8 @@ test('a finished feature has its frame and bar in success, not the accent', ON, 
 
     const bar = (await barOf($)).filter(run => run.text.includes('█'))
     expect(bar.map(run => run.color)).toEqual(['success'])
-    // title, feature, lead and its honeycomb frame (eight pieces) are still the accent
-    expect((await drawnText($)).split(`"${ACCENT}"`).length - 1).toBe(11)
+    // title, feature and lead are still the accent
+    expect(accentsOutsideHive(await drawnText($))).toBe(3)
   } finally {
     TICKETS['02-api.md'] = original
     TICKETS['03-page.md'] = original3

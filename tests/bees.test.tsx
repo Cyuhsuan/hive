@@ -243,53 +243,65 @@ test('narrow, the bee flies and the count shows, and nothing is pushed out of th
   }
 })
 
-test('the lead frame is uneven honeycomb with a ragged outline, with no subagent yet and at every width', ON, async ($, on) => {
+test('the lead frame is the icon\'s honeycomb: staggered cells in its tones, ragged outside, at every width', ON, async ($, on) => {
   engine(on)
   await start($)
 
-  for (const columns of [24, 56, 84]) {
+  const PALETTE = ['#c084fc', '#a855f7', '#f3e8ff']
+  const runsOf = (line: Node) => (line.children as Node[]).filter(n => n.type === 'Text')
+  const lineOf = (line: Node) => runsOf(line).map(run => String(run.children?.[0])).join('')
+
+  for (const columns of [24, 25, 56, 84]) {
     const hive = cardOf(await drawn($, columns), 'hive')
     expect(hive.props!['width']).toBe(columns)
-    const [above, top, middle, bottom, below] = (hive.children as Node[]).map(n => n)
-    const row = (n: Node) => String(n.children?.[0])
-    // the ring's top and bottom: one cell in from each edge, capped and open cells in no even order
-    for (const edge of [top!, bottom!]) {
-      expect(row(edge)).toMatch(/^ [⬢⬡]+$/)
-      expect(row(edge)).toMatch(/⬢⬢/)
-      expect(row(edge)).toMatch(/⬡⬡/)
-      expect(row(edge)).toMatch(/⬢⬡⬢/)
-      expect(cells(row(edge))).toBe(columns - 1)
-    }
-    expect(row(top!)).not.toBe(row(bottom!))
-    // past the ring, above and below: a few cells stand out and most of the edge is bare
-    for (const ragged of [above!, below!]) {
-      expect(row(ragged)).toMatch(/^[⬢⬡ ]+$/)
-      expect(row(ragged)).toMatch(/[⬢⬡]/)
-      expect(row(ragged)).toMatch(/ {2}/)
-      expect(cells(row(ragged))).toBe(columns)
-      expect(row(ragged).replace(/ /g, '').length).toBeLessThan(columns / 2)
-    }
-    expect(row(above!)).not.toBe(row(below!))
-    // the sides: the ring's cell on every row, and outside it a cell standing out on some rows only
+    const [r0, r1, middle, r4, r5] = hive.children as Node[]
     const [left, body, right] = middle!.children as Node[]
-    const rows = (n: Node) => (n.children as Node[]).map(row)
-    expect(left!.props!['width']).toBe(2)
-    expect(right!.props!['width']).toBe(2)
-    for (const r of rows(left!)) expect(r).toMatch(/^[⬢⬡ ][⬢⬡]$/)
-    for (const r of rows(right!)) expect(r).toMatch(/^[⬢⬡][⬢⬡ ]$/)
-    for (const side of [left!, right!]) {
-      const out = rows(side).join('')
-      expect(rows(side)).toHaveLength(2)
-      expect(out).toContain(' ')
-      expect(out.replace(/ /g, '').length).toBe(3)
+    const sideRows = (side: Node) => (side.children as Node[]).map(lineOf)
+    // the six rows, whole: the lead's two filled out with blanks between their sides
+    const blank = ' '.repeat(columns - 4)
+    const rows = [lineOf(r0!), lineOf(r1!), sideRows(left!)[0] + blank + sideRows(right!)[0], sideRows(left!)[1] + blank + sideRows(right!)[1], lineOf(r4!), lineOf(r5!)]
+
+    rows.forEach((row, r) => {
+      expect(row).toMatch(/^[⬢⬡ ]+$/)
+      expect(row.length).toBe(columns)
+      // staggered: a cell only where row and column are both even or both odd
+      ;[...row].forEach((ch, c) => { if ((r + c) % 2 !== 0) expect(ch).toBe(' ') })
+    })
+    const cellsOf = (row: string) => row.replace(/ /g, '').length
+    const places = (r: number) => Math.ceil((columns - (r % 2)) / 2)
+    // the rows next to the lead are whole; the outermost have gaps, and still cells
+    expect(cellsOf(rows[1]!)).toBe(places(1))
+    expect(cellsOf(rows[4]!)).toBe(places(4))
+    for (const r of [0, 5]) {
+      expect(cellsOf(rows[r]!)).toBeLessThan(places(r))
+      expect(cellsOf(rows[r]!)).toBeGreaterThan(places(r) / 3)
     }
+    // each side of the lead: one cell a row, staggered between the two rows
+    for (const side of [left!, right!]) {
+      expect(side.props!['width']).toBe(2)
+      const [a, b] = sideRows(side)
+      expect(cellsOf(a!)).toBe(1)
+      expect(cellsOf(b!)).toBe(1)
+      expect(a!.search(/\S/)).not.toBe(b!.search(/\S/))
+    }
+    // the icon's tones, and its open cells dim: capped and open both there, in no even order
+    const runs = [r0!, r1!, r4!, r5!].flatMap(runsOf).filter(run => /[⬢⬡]/.test(String(run.children?.[0])))
+    for (const run of runs) {
+      expect(PALETTE).toContain(run.props!['color'])
+      expect(run.props!['dimColor'] === true).toBe(String(run.children?.[0]).includes('⬡'))
+    }
+    expect(new Set(runs.map(run => run.props!['color'])).size).toBe(3)
+    expect(rows[1]).toContain('⬡')
+    expect(rows[1]).toMatch(/⬢ ⬢ ⬢/)
+    expect(rows[1]).not.toBe(' ' + rows[4]!.slice(0, -1))
+
     expect(body!.props!['width']).toBe(columns - 4)
     expect(body!.children).toHaveLength(2)
     expect(text(body)).toContain('lead')
     expect(text(body)).toContain('已派 0')
     // no line of a plain frame is left on it
     expect(find(hive, n => n.props?.borderStyle !== undefined)).toHaveLength(0)
-    // and the comb is still: drawn again, cell for cell the same
+    // and the hive is still: drawn again, cell for cell the same
     expect(text(cardOf(await drawn($, columns), 'hive'))).toBe(text(hive))
   }
 })

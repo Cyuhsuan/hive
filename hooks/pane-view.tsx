@@ -6,8 +6,9 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Swarm, SwarmAgent } from '../types'
 import { ACCENT } from './accent'
-import { BEE, beeLeft, comb, crust, isReturning, returnLeft, spinnerAt, sweptBar } from './animation'
+import { BEE, beeLeft, isReturning, returnLeft, spinnerAt, sweptBar } from './animation'
 import { PHASE_LABEL, PHASE_PERCENT, isLive } from './agent-phase'
+import { HIVE_SIDE, hiveRow } from './hive'
 import { workflowLine } from './pane-model'
 import type { PaneModel } from './pane-model'
 import { bar, cells, clip, fmtClock, fmtDuration, shortModel } from './text-format'
@@ -196,6 +197,12 @@ export function drawPane(
     model.finishedAgentCount > 0 ? `${BEE} ${model.finishedAgentCount}` : '',
     isWorkflowView ? `已 merge ${model.mergedCount}` : '',
   ].filter(Boolean).join(' · ')
+  // One line of the hive: its cells from `column` on, each stretch in its own tone.
+  const hiveLine = (row: number, column: number, length: number) => (
+    <Text>
+      {hiveRow(row, column, length).map(run => <Text color={run.color} dimColor={run.isDim}>{run.text}</Text>)}
+    </Text>
+  )
   // Narrow, a log line names its ticket by number alone.
   const whoW = isNarrow ? 4 : 14
   const who = (name: string) => {
@@ -237,18 +244,17 @@ export function drawPane(
         </Box>
       )}
 
-      {/* The lead is the hive: its frame is honeycomb, capped and open cells in no even order, drawn by hand
-          (a border style has no such cells). A ring of comb one cell in from the edge, and past it, on every
-          side, the few cells that stand out: the outline is ragged. Its two rows never wrap, so each side is two rows. */}
+      {/* The lead is the hive: its frame is the icon's honeycomb, drawn by hand (a border style has no such
+          cells). Two staggered rows above and below, and the same rows carried down each side of the lead's two. */}
       <Box key="hive" flexDirection="column" width={W}>
-        <Text color={ACCENT}>{crust(W)}</Text>
-        <Text color={ACCENT}>{` ${comb(W - 2)}`}</Text>
+        {hiveLine(0, 0, W)}
+        {hiveLine(1, 0, W)}
         <Box flexDirection="row">
-          <Box flexDirection="column" width={2}>
-            <Text color={ACCENT}>{crust(1, 1) + comb(1, 4)}</Text>
-            <Text color={ACCENT}>{crust(1, 2) + comb(1, 7)}</Text>
+          <Box flexDirection="column" width={HIVE_SIDE}>
+            {hiveLine(2, 0, HIVE_SIDE)}
+            {hiveLine(3, 0, HIVE_SIDE)}
           </Box>
-          <Box flexDirection="column" width={W - 4} paddingX={1}>
+          <Box flexDirection="column" width={W - 2 * HIVE_SIDE} paddingX={1}>
             <Text wrap="truncate-end">
               <Text bold color={ACCENT}>lead</Text>
               <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, W - 10)}</Text>
@@ -258,13 +264,13 @@ export function drawPane(
               <Text>{clip(leadTally, W - 6)}</Text>
             </Box>
           </Box>
-          <Box flexDirection="column" width={2}>
-            <Text color={ACCENT}>{comb(1, 9) + crust(1, 3)}</Text>
-            <Text color={ACCENT}>{comb(1, 15) + crust(1, 4)}</Text>
+          <Box flexDirection="column" width={HIVE_SIDE}>
+            {hiveLine(2, W - HIVE_SIDE, HIVE_SIDE)}
+            {hiveLine(3, W - HIVE_SIDE, HIVE_SIDE)}
           </Box>
         </Box>
-        <Text color={ACCENT}>{` ${comb(W - 2, 11)}`}</Text>
-        <Text color={ACCENT}>{crust(W, 13)}</Text>
+        {hiveLine(4, 0, W)}
+        {hiveLine(5, 0, W)}
       </Box>
 
       <Box paddingLeft={2}>

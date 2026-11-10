@@ -27,25 +27,6 @@ export function spinnerAt(now: number): string {
 
 /** The bee: two cells wide. */
 export const BEE = '🐝'
-// Honeycomb as bees leave it: capped cells and open ones in no even order. The run
-// is a prime number of cells long, so two stretches cut from different places never fall in step.
-const COMB = '⬢⬢⬡⬢⬡⬡⬢⬢⬢⬡⬢⬡⬢⬢⬡⬡⬢⬡⬢⬢⬡⬢⬡⬡⬡⬢⬢⬡⬢'
-/**
- * A stretch of the hive's frame: `length` cells of honeycomb, cut from the comb at `from`.
- * The same stretch every time it is asked for, so the frame is still from one drawing to the next.
- */
-export function comb(length: number, from = 0): string {
-  return Array.from({ length: Math.max(0, length) }, (_, i) => COMB[(from + i) % COMB.length]!).join('')
-}
-// The cells that stand out past the comb's edge: a few here and there, most of the edge bare.
-const CRUST = '  ⬢⬡   ⬢  ⬡⬢⬢    ⬡  ⬢⬡ ⬢   ⬡⬡ '
-/**
- * A stretch of the hive's ragged outline: `length` cells, a cell of comb where one
- * stands out and a blank where none does, cut from the crust at `from`. As still as `comb`.
- */
-export function crust(length: number, from = 0): string {
-  return Array.from({ length: Math.max(0, length) }, (_, i) => CRUST[(from + i) % CRUST.length]!).join('')
-}
 /** One lap of a bee along the top of its card: out to the far end and back. */
 export const BEE_LAP_MS = 4000
 /** How long a finished subagent's bee takes to leave its card. */
