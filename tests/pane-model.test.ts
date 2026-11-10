@@ -200,8 +200,8 @@ test('done: every ticket done needs each one merged or resolved', () => {
   expect(isEveryTicketDone(tickets, new Set(['2']))).toBe(true)
 })
 
-test('returnedCount is the subagents that finished, failed ones left out', () => {
+test('finishedAgentCount is the subagents that finished, failed ones left out', () => {
   const s = swarm([], [agent('a', 'done'), agent('b', 'done'), agent('c', 'failed'), agent('d', 'reading')])
-  expect(paneModelOf(s, false).returnedCount).toBe(2)
-  expect(paneModelOf(swarm([], [agent('c', 'failed')]), false).returnedCount).toBe(0)
+  expect(paneModelOf(s, false).finishedAgentCount).toBe(2)
+  expect(paneModelOf(swarm([], [agent('c', 'failed')]), false).finishedAgentCount).toBe(0)
 })

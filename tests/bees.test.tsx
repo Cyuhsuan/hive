@@ -1,5 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+import { cells } from '../hooks/text-format'
+
 // A bee flies along the top of every subagent card at work and, when the
 // subagent finishes, leaves the card in about a second. The lead's frame counts
 // the bees that came home. The bee is laid over the card: nothing moves for it.
@@ -36,6 +38,7 @@ function engine(on: On, world: World = { invalidations: 0 }) {
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `agent-${++n}` }))
   on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
+  on('tool.call', () => ({ result: {} }))
   return clock
 }
 
@@ -126,8 +129,11 @@ test('the returning bee leaves past the card edge', ON, async ($, on) => {
   await finish($, 'agent-1')
   await clock.advance(RETURN_MS - REDRAW_MS)
 
-  // inside the card's 38 columns, the frame's two included: a bee left of 36 is wholly out
-  expect(beeLeftOf(cardOf(await drawn($), 'agent-1'))).toBeGreaterThan(30)
+  // From the inner edge, the card's right frame is column 36 of its 38: a bee at 37 or more
+  // (two cells wide) lies wholly past it, and further right than a flying bee ever goes (34).
+  const left = beeLeftOf(cardOf(await drawn($), 'agent-1'))
+  expect(left).toBeGreaterThanOrEqual(37)
+  expect(left).toBeGreaterThan(38 - 4)
 })
 
 test('a failed subagent has no bee the moment it fails, and keeps its red frame', ON, async ($, on) => {
@@ -227,7 +233,7 @@ test('narrow, the bee flies and the count shows, and nothing is pushed out of th
     expect(left + 2).toBeLessThanOrEqual(width - 2)
     // the lead's tally still fits the lead's frame
     const lead = find(tree, n => n.type === 'Text' && text(n).includes('🐝 1'))[0]!
-    expect([...String(lead.children?.[0])].length).toBeLessThanOrEqual(columns - 4)
+    expect(cells(String(lead.children?.[0]))).toBeLessThanOrEqual(columns - 4)
   }
 })
 
@@ -248,4 +254,109 @@ test('animation off: the bee waits still on a live card, none after the finish, 
   const tree = await drawn($)
   expect(beesOn(cardOf(tree, 'agent-2'))).toHaveLength(0)
   expect(text(tree)).toContain('已派 2 · 🐝 1')
+})
+
+// ------------------------------------------------------------ the workflow view and its ticket cards
+
+const WF = { options: { workflow: 'mattpocock-skills' } }
+const WF_OFF = { options: { workflow: 'mattpocock-skills', animation: 'off' } }
+const TICKETS: Record<string, string> = {
+  '01-schema.md': '# 01: 新增資料表\n\n**Blocked by:** None\n\n**Status:** ready-for-agent\n\n- [ ] a\n',
+  '02-api.md': '# 02: 登入 API\n\n**Blocked by:** 01\n\n**Status:** ready-for-agent\n\n- [ ] a\n',
+}
+
+function workflowEngine(on: On, world: World = { invalidations: 0 }) {
+  const clock = engine(on, world)
+  on('fs.list', () => ({ value: Object.keys(TICKETS).map(name => ({ name, kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false })) }))
+  on('fs.read', (_: unknown, e: { path: string }) => {
+    if (e.path.endsWith('issue-tracker.md')) throw new Error('ENOENT')
+    return { value: TICKETS[e.path.split('/').pop() ?? ''] ?? '' }
+  })
+  return clock
+}
+const spawnTicket = ($: any, file: string, subagentType = 'ticket-implementer') =>
+  $.agent.spawn({ prompt: `實作 .scratch/f/issues/${file}`, description: file, subagentType } as never)
+
+test('workflow view: a ticket card, implementing or reviewing, has a bee and it flies home on finishing', WF, async ($, on) => {
+  const clock = workflowEngine(on)
+  await start($)
+  await spawnTicket($, '01-schema.md')
+  await spawnTicket($, '02-api.md', 'code-reviewer')
+  await $.tool.call({ tool: 'Read', file_path: '/repo/a.ts', agentId: 'agent-2' } as never)
+
+  const tree = await drawn($)
+  expect(beesOn(cardOf(tree, 'agent-1'))).toHaveLength(1)
+  expect(text(cardOf(tree, 'agent-2'))).toContain('審查')
+  expect(beesOn(cardOf(tree, 'agent-2'))).toHaveLength(1)
+  expect(beesOn(cardOf(tree, 'agent-1'))[0]!.props!['top']).toBe(-1)
+
+  await finish($, 'agent-1')
+  await clock.advance(RETURN_MS - REDRAW_MS)
+  const returning = cardOf(await drawn($), 'agent-1')
+  expect(beesOn(returning)).toHaveLength(1)
+  expect(beeLeftOf(returning)).toBeGreaterThanOrEqual(37)
+
+  await clock.advance(REDRAW_MS)
+  expect(beesOn(cardOf(await drawn($), 'agent-1'))).toHaveLength(0)
+})
+
+test('workflow view: the lead reads 已派 N, then 🐝 K, then 已 merge M', WF, async ($, on) => {
+  workflowEngine(on)
+  await start($)
+  await spawnTicket($, '01-schema.md')
+  await spawnTicket($, '02-api.md')
+  await finish($, 'agent-1')
+
+  const tally = find(await drawn($), n => n.type === 'Text' && text(n).includes('已派'))[0]!
+  expect(String(tally.children?.[0])).toBe('已派 2 · 🐝 1 · 已 merge 0')
+})
+
+test('workflow view: at 24, 56 and 84 columns the step chart, the cards and the lead hold their frames', WF, async ($, on) => {
+  workflowEngine(on)
+  await start($)
+  await spawnTicket($, '01-schema.md')
+  await spawnTicket($, '02-api.md')
+  await finish($, 'agent-2')
+
+  for (const columns of [24, 56, 84]) {
+    const tree = await drawn($, columns)
+    // the step chart is drawn: one row per step, each row's glyphs and numbers kept whole
+    const steps = find(tree, n => n.type === 'Text' && /step \d|[▶✓ ] \d/.test(text(n)))
+    expect(steps.length).toBeGreaterThan(0)
+    expect(text(tree)).toContain('01')
+    expect(text(tree)).toContain('02')
+
+    const card = cardOf(tree, 'agent-1')
+    const width = card.props!['width'] as number
+    expect(width).toBeLessThanOrEqual(columns - 2)
+    const left = beeLeftOf(card)
+    expect(left).toBeGreaterThanOrEqual(0)
+    expect(left + 2).toBeLessThanOrEqual(width - 2)
+
+    const lead = find(tree, n => n.type === 'Text' && text(n).includes('🐝 1'))[0]!
+    expect(cells(String(lead.children?.[0]))).toBeLessThanOrEqual(columns - 4)
+  }
+})
+
+test('workflow view, animation off: a still bee on a live ticket card, none once it finishes or fails', WF_OFF, async ($, on) => {
+  workflowEngine(on)
+  await start($)
+  await spawnTicket($, '01-schema.md')
+  await spawnTicket($, '02-api.md')
+
+  expect(beeLeftOf(cardOf(await drawn($), 'agent-1'))).toBe(0)
+  await finish($, 'agent-1')
+  await fail($, 'agent-2')
+  const tree = await drawn($)
+  expect(beesOn(cardOf(tree, 'agent-1'))).toHaveLength(0)
+  expect(beesOn(cardOf(tree, 'agent-2'))).toHaveLength(0)
+})
+
+test('animation off: a failed subagent has no bee', OFF, async ($, on) => {
+  engine(on)
+  await start($)
+  await spawn($)
+  await fail($, 'agent-1')
+
+  expect(beesOn(cardOf(await drawn($), 'agent-1'))).toHaveLength(0)
 })

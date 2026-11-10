@@ -43,7 +43,6 @@ export function drawPane(
   const boxInner = W - 4 // a frame and one cell of padding each side
 
   const { live, done, failed, feature, tickets, ticketStates, isWorkflowView, isFeatureDone, currentStep, stepCount, ordered, hiddenDone, logLines, featurePercent, doneCount } = model
-
   // A ticket is `running` only with a live subagent behind it, so its glyph turns with that card's.
   const liveGlyph = isAnimated ? spinnerAt(now) : '●'
   const stateGlyph = { merged: '◆', resolved: '✓', running: liveGlyph, failed: '✗', ready: '○', blocked: '·' } as const
@@ -118,14 +117,15 @@ export function drawPane(
     const barW = Math.max(4, inner - 12)
 
     // The bee lies on the card's top edge, over the frame, in no cell of the card's own.
-    // Inside the frame it has `cardW - 2` columns, two of them its own.
+    // Inside the frame it has `cardW - 2` columns, two of them its own. Leaving, it
+    // flies on to `cardW + 1`, so its two cells lie past the right frame before it is gone.
     const beeSpan = cardW - 4
     const beeAt = !isAnimated
       ? (isRunning ? 0 : undefined)
       : isRunning
         ? beeLeft(now, beeSpan)
         : isReturning(a, now)
-          ? returnLeft(now, a.endedAt!, beeSpan, cardW - 2)
+          ? returnLeft(now, a.endedAt, beeSpan, cardW + 1)
           : undefined
 
     return (
@@ -190,8 +190,8 @@ export function drawPane(
   // The lead is the hive: it counts the bees that came home.
   const leadTally = [
     `已派 ${s.agents.length}`,
+    model.finishedAgentCount > 0 ? `${BEE} ${model.finishedAgentCount}` : '',
     isWorkflowView ? `已 merge ${model.mergedCount}` : '',
-    model.returnedCount > 0 ? `${BEE} ${model.returnedCount}` : '',
   ].filter(Boolean).join(' · ')
   // Narrow, a log line names its ticket by number alone.
   const whoW = isNarrow ? 4 : 14

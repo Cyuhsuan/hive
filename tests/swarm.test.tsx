@@ -154,7 +154,7 @@ test('cards carry the ticket title, failed ones first, done ones on one line', W
   expect(at('03 報表頁面')).toBeLessThan(at('02 登入 API'))
   expect(at('02 登入 API')).toBeLessThan(at('01 新增資料表'))
   // The lead's frame counts what it sent out.
-  expect(await ui.find({ type: 'Text', text: /已派 3 · 已 merge 0/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /已派 3 · 🐝 1 · 已 merge 0/ })).toBeDefined()
   await ui.unmount()
 })
 
