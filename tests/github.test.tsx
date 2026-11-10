@@ -544,8 +544,8 @@ test('local markdown tracker: nothing calls gh', WF, async ($, on) => {
 // ------------------------------------------------------------ starting over
 
 const typed = ($: any, args: string) => $.command.run({ command: 'mattpocock-skills:implement-spec', args } as never)
-const finishAgent = ($: any, agentId: string) =>
-  $.turn.complete({ agentId, reason: 'answer', isAborted: false, durationMs: 1000, answer: 'ok' } as never)
+const finishAgent = ($: any, agentId: string, reason = 'answer') =>
+  $.turn.complete({ agentId, reason, isAborted: false, durationMs: 1000, answer: 'ok' } as never)
 
 test('github: the person typing the start skill resets like the lead calling it, and loads the spec', WF, async ($, on) => {
   const world = newWorld()
@@ -653,13 +653,27 @@ test('with no usable ticket source a typed start skill resets nothing', WF, asyn
 
 const NEXT_PROMPT = '實作 #21 發票'
 
-test('github: the feature all done, a prompt pointing at another spec swaps the tickets and keeps cards and log', WF, async ($, on) => {
+const lastStatus = (world: World) => world.statuses.at(-1) ?? ''
+
+/** A card done (agent-1), one failed (agent-2) and one still running (agent-3) on the spec feature; the next spawn is agent-4. */
+async function endedAndRunning($: any) {
+  await spawn($, '實作 #12', '第 12 張')
+  await finishAgent($, 'agent-1')
+  await spawn($, '實作 #11', '第 11 張')
+  await finishAgent($, 'agent-2', 'error')
+  await spawn($, '實作 #13', '第 13 張')
+}
+const ENDED = /swarm \d+ 跑 · 1 完 · 1 敗/
+const NO_ENDED = /swarm \d+ 跑 · 0 完(?! · \d+ 敗)/
+
+test('github: the feature all done, a prompt pointing at another spec swaps the tickets, drops ended cards and keeps the log', WF, async ($, on) => {
   const world = newWorld()
   world.closed = new Set([11, 12, 13])
   engine(on, world)
   await start($)
   await skill($, '#10')
-  await spawn($, '實作 #12', '第 12 張')
+  await endedAndRunning($)
+  expect(lastStatus(world)).toMatch(ENDED)
   await spawn($, NEXT_PROMPT, '第 21 張')
 
   expect(world.gh).toContain('issues/21/parent')
@@ -667,8 +681,88 @@ test('github: the feature all done, a prompt pointing at another spec swaps the 
   expect(await has(ui, /Billing feature/)).toBe(true)
   expect(await has(ui, /12 API/)).toBe(false) // the old tickets are gone
   expect(await has(ui, /21 Invoice/)).toBe(true) // the triggering agent points at its ticket in the new feature
-  expect(await has(ui, /第 12 張 · ticket-impl/)).toBe(false) // an older card keeps its (now unknown) ticket: not an observing card
+  expect(lastStatus(world)).toMatch(NO_ENDED) // the ended cards are gone; the running one and the new one stay
   expect(await has(ui, /派出 ticket/)).toBe(true) // the log stays
+  await ui.unmount()
+})
+
+test('github: the card still running at the swap keeps being updated by its tool calls', WF, async ($, on) => {
+  const world = newWorld()
+  world.closed = new Set([11, 12, 13])
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await endedAndRunning($)
+  await spawn($, NEXT_PROMPT, '第 21 張')
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'a', new_string: 'b', agentId: 'agent-3' } as never)
+  await finishAgent($, 'agent-3')
+  const ui = await mount($)
+  expect(await has(ui, /1 次工具/)).toBe(true)
+  expect(lastStatus(world)).toMatch(/swarm 1 跑 · 1 完(?! · \d+ 敗)/)
+  await ui.unmount()
+})
+
+test('github: no feature loaded yet, loading the first one keeps the ended cards', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await spawn($, 'explore', '先探索', 'Explore')
+  await finishAgent($, 'agent-1')
+  await spawn($, '實作 #12', '第 12 張') // loads spec 10 for the first time
+  expect(lastStatus(world)).toMatch(/swarm 1 跑 · 1 完/)
+})
+
+test('github: the start skill waiting for tickets, loading the first feature keeps the ended cards', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '') // the workflow screen is up with no feature on it
+  await spawn($, 'explore', '先探索', 'Explore')
+  await finishAgent($, 'agent-1')
+  await spawn($, '實作 #12', '第 12 張') // loads spec 10 for the first time
+  expect(lastStatus(world)).toMatch(/swarm 1 跑 · 1 完/)
+})
+
+test('github: a load that fails leaves the ended cards', WF, async ($, on) => {
+  const world = newWorld()
+  world.closed = new Set([11, 12, 13])
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await endedAndRunning($)
+  world.failure = { exitCode: 1, stderr: 'boom' }
+  await spawn($, NEXT_PROMPT, '第 21 張')
+  expect(lastStatus(world)).toMatch(ENDED)
+})
+
+test('github: re-reading the same spec, or the spec gaining a ticket, keeps the ended cards', WF, async ($, on) => {
+  const world = newWorld()
+  world.closed = new Set([11, 12, 13])
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await endedAndRunning($)
+  await finishAgent($, 'agent-3') // the tickets are read again
+  await swarm($, '') // and again
+  world.sub.push(issue(14, 'Report', '- [ ] a'))
+  await spawn($, '實作 #14 報表', '第 14 張')
+  expect(lastStatus(world)).toMatch(/swarm 1 跑 · 2 完 · 1 敗/)
+  const ui = await mount($)
+  expect(await has(ui, /14 Report/)).toBe(true)
+  await ui.unmount()
+})
+
+test('github: /swarm naming another spec drops the ended cards and keeps the log', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await endedAndRunning($)
+  await swarm($, '#21')
+  const ui = await mount($)
+  expect(await has(ui, /Billing feature/)).toBe(true)
+  expect(lastStatus(world)).toMatch(NO_ENDED)
+  expect(await has(ui, /派出 ticket/)).toBe(true)
   await ui.unmount()
 })
 
@@ -867,7 +961,8 @@ test('github standalone: a standalone feature not done does not change for a spe
   ui = await mount($)
   expect(await has(ui, /Billing feature/)).toBe(true)
   expect(await has(ui, ROW30)).toBe(false)
-  expect(await has(ui, /派出 ticket/)).toBe(true) // cards and log stay
+  expect(await has(ui, /派出 ticket/)).toBe(true) // the log stays
+  expect(lastStatus(world)).toMatch(NO_ENDED) // the card that ended (agent-1) is gone, the new one stays
   await ui.unmount()
 })
 
@@ -975,5 +1070,71 @@ test('github standalone: /swarm naming a spec while standalone tickets are loade
   const ui = await mount($)
   expect(await has(ui, /Login feature/)).toBe(true)
   expect(await has(ui, ROW30)).toBe(false)
+  await ui.unmount()
+})
+
+test('github standalone: a spec feature all done swapping to the standalone feature, and back, drops the ended cards', WF, async ($, on) => {
+  const world = newWorld()
+  world.closed = new Set([11, 12, 13])
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await endedAndRunning($)
+  await spawn($, '實作 #30', '第 30 張') // agent-4: swaps to the standalone feature
+  expect(lastStatus(world)).toMatch(NO_ENDED)
+
+  world.closed.add(30)
+  await finishAgent($, 'agent-3')
+  await finishAgent($, 'agent-4') // the tickets are read again: the standalone feature is all done
+  await spawn($, NEXT_PROMPT, '第 21 張') // agent-5: swaps to spec 20
+  expect(lastStatus(world)).toMatch(NO_ENDED)
+  const ui = await mount($)
+  expect(await has(ui, /Billing feature/)).toBe(true)
+  expect(await has(ui, /派出 ticket/)).toBe(true) // the log stays
+  await ui.unmount()
+})
+
+test('github standalone: another standalone ticket joining the feature, by prompt or /swarm #N, keeps the ended cards', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await spawn($, '實作 #30', '第 30 張')
+  await finishAgent($, 'agent-1')
+  await spawn($, '實作 #31', '第 31 張')
+  await finishAgent($, 'agent-2', 'error')
+  await spawn($, '實作 #32', '第 32 張')
+  await swarm($, '#31')
+  expect(lastStatus(world)).toMatch(ENDED)
+})
+
+test('github standalone: /swarm adding a new standalone ticket, by #N or by issue URL, keeps the ended cards', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await spawn($, '實作 #30', '第 30 張')
+  await finishAgent($, 'agent-1')
+  await spawn($, '實作 #31', '第 31 張')
+  await finishAgent($, 'agent-2', 'error')
+  await spawn($, '實作 #32', '第 32 張')
+  await swarm($, '#33')
+  expect(world.gh).toContain('issues/33') // a ticket the feature did not have
+  expect(lastStatus(world)).toMatch(ENDED)
+  await swarm($, 'https://github.com/o/r/issues/34')
+  expect(world.gh).toContain('issues/34')
+  expect(lastStatus(world)).toMatch(ENDED)
+})
+
+test('github: /swarm <issue URL> of another spec swaps the tickets and drops the ended cards', WF, async ($, on) => {
+  const world = newWorld()
+  world.closed = new Set([11, 12, 13])
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await endedAndRunning($)
+  await swarm($, 'https://github.com/o/r/issues/20')
+  expect(lastStatus(world)).toMatch(NO_ENDED)
+  const ui = await mount($)
+  expect(await has(ui, /Billing feature/)).toBe(true)
+  expect(await has(ui, /派出 ticket/)).toBe(true) // the log stays
   await ui.unmount()
 })
