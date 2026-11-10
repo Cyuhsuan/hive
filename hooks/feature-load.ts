@@ -174,7 +174,8 @@ export async function ticketOfPrompt($: EngineInterface, prompt: string, s: Swar
   const loaded = shown ? s.feature : undefined
   const sources = loaded ? [sourceById(loaded.sourceId, workflow)] : (workflow?.sources ?? [])
   let ref: TicketRef | undefined
-  for (const src of sources) ref ??= src.refOfText(prompt, loaded)
+  // A feature kept in the state but not on the screen still names its tickets: it is read again below, not asked for.
+  for (const src of sources) ref ??= src.refOfText(prompt, s.feature)
   // Nothing on the screen, or the feature on it is all done: the prompt's ticket may belong to another
   // spec, or be a ticket added to this one since it was read. (An empty feature has nothing left, so it counts.)
   const isLookedUp = !ref && (!loaded || isEveryTicketDone(loaded.tickets, new Set(loaded.merged))) && workflow?.sources.some(src => src.mayNameTicket?.(prompt))
