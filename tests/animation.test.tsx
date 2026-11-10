@@ -306,7 +306,7 @@ test('the title, feature, lead and their frames are the accent, wide or narrow, 
   for (const columns of [80, 24]) {
     const text = await drawnText($, columns)
     expect(text).not.toContain('"claude"')
-    // title, feature, feature frame, feature bar, lead, and the lead's jagged honeycomb frame (six pieces: top, bottom, two cells a side)
+    // title, feature, feature frame, feature bar, lead, and the lead's honeycomb frame (six pieces: top, bottom, two cells a side)
     expect(text.split(`"${ACCENT}"`).length - 1).toBe(11)
   }
 })

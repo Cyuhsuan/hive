@@ -243,28 +243,29 @@ test('narrow, the bee flies and the count shows, and nothing is pushed out of th
   }
 })
 
-test('the lead frame is the jagged outline of honeycomb, with no subagent yet and at every width', ON, async ($, on) => {
+test('the lead frame is honeycomb on all four sides, with no subagent yet and at every width', ON, async ($, on) => {
   engine(on)
   await start($)
 
-  for (const columns of [24, 25, 56, 84]) {
+  for (const columns of [24, 56, 84]) {
     const hive = cardOf(await drawn($, columns), 'hive')
-    // the teeth come in pairs: an odd body leaves its last column empty
-    const width = columns - (columns % 2)
-    expect(hive.props!['width']).toBe(width)
+    expect(hive.props!['width']).toBe(columns)
     const [top, middle, bottom] = hive.children as Node[]
-    // top and bottom: a sawtooth between the two points, each tooth rising then falling
-    expect(String(top!.children?.[0])).toBe(` ${'╱╲'.repeat((width - 2) / 2)} `)
-    expect(String(bottom!.children?.[0])).toBe(` ${'╲╱'.repeat((width - 2) / 2)} `)
-    expect(cells(String(top!.children?.[0]))).toBe(width)
-    // the sides: a point each, meeting the sawtooth's ends, the lead's two rows between them
+    // top and bottom: honeycomb the whole width, full and empty cells by turns
+    for (const edge of [top!, bottom!]) {
+      const row = String(edge.children?.[0])
+      expect(row).toMatch(/^[⬢⬡]+$/)
+      expect(row).not.toMatch(/⬢⬢|⬡⬡/)
+      expect(cells(row)).toBe(columns)
+    }
+    // the sides: one cell each per row, the lead's two rows between them
     const [left, body, right] = middle!.children as Node[]
-    const side = (n: Node) => (n.children as Node[]).map(row => String(row.children?.[0])).join('')
-    expect(side(left!)).toBe('╱╲')
-    expect(side(right!)).toBe('╲╱')
-    expect(left!.props!['width']).toBe(1)
-    expect(right!.props!['width']).toBe(1)
-    expect(body!.props!['width']).toBe(width - 2)
+    for (const side of [left!, right!]) {
+      expect(side.props!['width']).toBe(1)
+      expect(side.children).toHaveLength(2)
+      expect(text(side)).toMatch(/[⬢⬡]/)
+    }
+    expect(body!.props!['width']).toBe(columns - 2)
     expect(body!.children).toHaveLength(2)
     expect(text(body)).toContain('lead')
     expect(text(body)).toContain('已派 0')

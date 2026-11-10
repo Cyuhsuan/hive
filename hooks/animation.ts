@@ -27,21 +27,10 @@ export function spinnerAt(now: number): string {
 
 /** The bee: two cells wide. */
 export const BEE = '🐝'
-/**
- * The hive's frame: the outline of a row of honeycomb cells, a sawtooth along
- * the top and bottom and a point each side, around two rows of `width - 2` cells.
- * `width` is even: the teeth come in pairs.
- */
-export function hiveFrame(width: number): { top: string; bottom: string; left: [string, string]; right: [string, string] } {
-  const teeth = Math.max(0, (width - 2) / 2)
-  return {
-    top: ` ${'╱╲'.repeat(teeth)} `,
-    bottom: ` ${'╲╱'.repeat(teeth)} `,
-    left: ['╱', '╲'],
-    right: ['╲', '╱'],
-  }
+/** A stretch of the hive's frame, `length` cells of honeycomb: full and empty cells by turns, `shift` moving which comes first. */
+export function comb(length: number, shift = 0): string {
+  return Array.from({ length: Math.max(0, length) }, (_, i) => ((i + shift) % 2 === 0 ? '⬢' : '⬡')).join('')
 }
-
 /** One lap of a bee along the top of its card: out to the far end and back. */
 export const BEE_LAP_MS = 4000
 /** How long a finished subagent's bee takes to leave its card. */
