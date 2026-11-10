@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { AgentPhase, Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
 import { paneModelOf } from '../hooks/pane-model'
+import { isEveryTicketDone } from '../hooks/ticket-done'
 
 // The pane model on its own: no pane, no plugin, no mock.
 
@@ -182,4 +183,19 @@ test('done: a ticket whose blocker is merged but not resolved is ready, not bloc
 test('done: merged is still drawn as merged and resolved as resolved', () => {
   const s = swarm([ticket('1'), ticket('2', { status: 'resolved' }), ticket('3', { status: 'resolved' })], [], ['1', '3'])
   expect(paneModelOf(s, true).ticketStates).toEqual(['merged', 'resolved', 'merged'])
+})
+
+// ------------------------------------------------ a feature with no tickets
+
+test('done: a feature with no tickets has nothing left, yet the pane does not draw it as finished', () => {
+  // Nothing left to do, so a prompt naming another spec's ticket may swap it out…
+  expect(isEveryTicketDone([], new Set())).toBe(true)
+  // …but an empty feature is not a finished one: its frame stays the accent.
+  expect(paneModelOf(swarm([]), true).isFeatureDone).toBe(false)
+})
+
+test('done: every ticket done needs each one merged or resolved', () => {
+  const tickets = [ticket('1', { status: 'resolved' }), ticket('2')]
+  expect(isEveryTicketDone(tickets, new Set())).toBe(false)
+  expect(isEveryTicketDone(tickets, new Set(['2']))).toBe(true)
 })
