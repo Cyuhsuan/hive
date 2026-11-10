@@ -65,7 +65,7 @@ function newWorld(): World {
   }
 }
 
-const PARENTS: Record<number, number> = { 11: 10, 12: 10, 13: 10 }
+const PARENTS: Record<number, number> = { 11: 10, 12: 10, 13: 10, 21: 20 }
 
 function gh(world: World, argv: readonly string[]) {
   if (world.failure) {
@@ -79,6 +79,9 @@ function gh(world: World, argv: readonly string[]) {
   const state = (i: { number: number }) => ({ ...i, state: world.closed.has(i.number) ? 'closed' : 'open' })
   if (endpoint === 'issues/10') return ok(issue(10, 'Login feature'))
   if (endpoint.startsWith('issues/10/sub_issues')) return ok(world.sub.map(i => state(i as { number: number })))
+  // a second spec, with one ticket
+  if (endpoint === 'issues/20') return ok(issue(20, 'Billing feature'))
+  if (endpoint.startsWith('issues/20/sub_issues')) return ok([issue(21, 'Invoice')])
   if (endpoint.startsWith('issues?')) return ok(world.all)
   const blocked = endpoint.match(/^issues\/(\d+)\/dependencies\/blocked_by$/)
   if (blocked) return ok(blocked[1] === '12' ? [{ number: 11 }] : [])
@@ -110,6 +113,7 @@ function engine(on: (event: string, hook: (...args: any[]) => unknown) => unknow
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `agent-${++n}` }))
   on('tool.call', () => (world.toolOutcome === 'deny' ? { deny: 'no' } : world.toolOutcome === 'error' ? { result: {}, isError: true } : { result: {} }))
   on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
+  on('command.run', () => ({ text: 'ran' }))
   on('fs.read', (_: unknown, e: { path: string }) => {
     if (e.path.endsWith(TRACKER)) {
       world.trackerReads += 1
@@ -511,4 +515,160 @@ test('local markdown tracker: nothing calls gh', WF, async ($, on) => {
   await spawn($, '實作 #12 見 .scratch/f/issues/02-api.md', '第 2 張')
   await swarm($, '')
   expect(world.gh).toEqual([])
+})
+
+// ------------------------------------------------------------ a new round
+
+const typed = ($: any, args: string) => $.command.run({ command: 'mattpocock-skills:implement-spec', args } as never)
+const finishAgent = ($: any, agentId: string) =>
+  $.turn.complete({ agentId, reason: 'answer', isAborted: false, durationMs: 1000, answer: 'ok' } as never)
+
+test('github: the person typing the start skill resets like the lead calling it, and loads the spec', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await spawn($, '實作 #11', '第 11 張')
+  await finishAgent($, 'agent-1')
+  world.closed.add(12)
+  const ran = await typed($, '#10')
+  expect(JSON.stringify(ran)).toContain('ran') // the command itself still runs
+
+  const ui = await mount($)
+  expect(await has(ui, /11 Schema/)).toBe(false) // the finished card is gone
+  expect(await has(ui, /Login feature/)).toBe(true) // the batch is loaded again
+  expect(await has(ui, /開始，等待派票/)).toBe(true)
+  expect(await has(ui, /派出 ticket/)).toBe(false) // the log only has the start line
+  await ui.unmount()
+})
+
+test('github: typed and Skill-tool starts leave the same panel', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  const panel = async (begin: () => Promise<unknown>) => {
+    await spawn($, '實作 #12', '第 12 張')
+    await finishAgent($, `agent-${++round}`)
+    await begin()
+    const ui = await mount($)
+    const drawn = JSON.stringify(await ui.drawn())
+    await ui.unmount()
+    return drawn
+  }
+  let round = 0
+  const a = await panel(() => typed($, '#10'))
+  const b = await panel(() => skill($, '#10'))
+  expect(a).toContain('Login feature')
+  expect(a).toBe(b)
+})
+
+test('a command that is not a start skill does not reset', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await spawn($, '實作 #12', '第 12 張')
+  await $.command.run({ command: 'compact', args: '' } as never)
+  await $.command.run({ command: 'implement-swarm', args: '#10' } as never)
+  const ui = await mount($)
+  expect(await has(ui, /12 API/)).toBe(true)
+  expect(await has(ui, /派出 ticket/)).toBe(true)
+  await ui.unmount()
+})
+
+test('the start skill typed again for the same spec resets again', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await spawn($, '實作 #12', '第 12 張')
+  await finishAgent($, 'agent-1')
+  await typed($, '#10')
+  const ui = await mount($)
+  expect(await has(ui, /派出 ticket/)).toBe(false)
+  expect(await has(ui, /讀到 Login feature/)).toBe(true)
+  await ui.unmount()
+})
+
+test('a card still running survives the reset, loses its ticket, and keeps updating', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await spawn($, '實作 #12', '第 12 張')
+  await typed($, '#10')
+
+  let ui = await mount($)
+  // no longer a ticket card: the observing card shows its description
+  expect(await has(ui, /第 12 張 · ticket-impl/)).toBe(true)
+  await ui.unmount()
+
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'a', new_string: 'b', agentId: 'agent-1' } as never)
+  await finishAgent($, 'agent-1')
+  ui = await mount($)
+  expect(await has(ui, /完成/)).toBe(true)
+  await ui.unmount()
+})
+
+test('with no usable ticket source a typed start skill resets nothing', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await spawn($, '實作 #12', '第 12 張')
+  world.tracker = '# Issue tracker: GitLab\n'
+  await typed($, '#10')
+  world.tracker = GITHUB
+  const ui = await mount($)
+  expect(await has(ui, /派出 ticket/)).toBe(true)
+  await ui.unmount()
+})
+
+// ------------------------------------------------------------ the next batch
+
+const NEXT_PROMPT = '實作 #21 發票'
+
+test('github: the batch all done, a prompt pointing at another spec swaps the tickets and keeps cards and log', WF, async ($, on) => {
+  const world = newWorld()
+  world.closed = new Set([11, 12, 13])
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await spawn($, '實作 #12', '第 12 張')
+  await spawn($, NEXT_PROMPT, '第 21 張')
+
+  expect(world.gh).toContain('issues/21/parent')
+  const ui = await mount($)
+  expect(await has(ui, /Billing feature/)).toBe(true)
+  expect(await has(ui, /12 API/)).toBe(false) // the old tickets are gone
+  expect(await has(ui, /21 Invoice/)).toBe(true) // the triggering agent points at its ticket in the new batch
+  expect(await has(ui, /第 12 張 · ticket-impl/)).toBe(false) // an older card keeps its (now unknown) ticket: not an observing card
+  expect(await has(ui, /派出 ticket/)).toBe(true) // the log stays
+  await ui.unmount()
+})
+
+test('github: a batch with tickets left is not left for another spec, and gh is not asked', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  const before = world.gh.length
+  await spawn($, NEXT_PROMPT, '第 21 張')
+  expect(world.gh.slice(before)).toEqual([])
+  const ui = await mount($)
+  expect(await has(ui, /Login feature/)).toBe(true)
+  expect(await has(ui, /Billing feature/)).toBe(false)
+  await ui.unmount()
+})
+
+test('github: the batch all done, a number that resolves to the same spec changes nothing', WF, async ($, on) => {
+  const world = newWorld()
+  world.closed = new Set([11, 12, 13])
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await spawn($, '看 #99', '看 99')
+  const ui = await mount($)
+  expect(await has(ui, /Login feature/)).toBe(true)
+  await ui.unmount()
 })

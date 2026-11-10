@@ -1,8 +1,10 @@
 import type { EngineInterface } from 'claude-code'
 
 import type { Swarm } from '../types'
-import { log, readSwarm, updateSwarm } from './swarm-state'
+import { isLive } from './agent-phase'
+import { EMPTY, log, readSwarm, updateSwarm } from './swarm-state'
 import { ticketName } from './ticket-source'
+import { isDone } from './ticket-done'
 import type { SourceEnv, TicketRef, TicketSource } from './ticket-source'
 import { sourceById } from './workflow'
 import type { SourceChoice, Workflow } from './workflow'
@@ -109,6 +111,32 @@ export async function loadFeature($: EngineInterface, source: TicketSource, orig
   return true
 }
 
+/**
+ * The workflow begins: its start skill was invoked, by the lead or typed by the
+ * person. The panel starts a new round (the cards still running stay, no longer
+ * tied to a ticket), and loads the spec the arguments name. Says whether the
+ * workflow screen is up; false too when the tracker names no usable source.
+ */
+export async function beginWorkflow($: EngineInterface, workflow: Workflow, skill: string, args: string): Promise<boolean> {
+  const choice = await pickSource($, workflow)
+  if (!choice?.source) return false
+  const at = await $.clock.now()
+  const source = choice.source
+  await updateSwarm($, s => ({
+    ...EMPTY,
+    startedAt: at,
+    sourceLabel: s.sourceLabel,
+    sourceId: s.sourceId,
+    agents: s.agents.filter(isLive).map(({ ticket: _ticket, ticketNumber: _number, ...a }) => a),
+  }))
+  await log($, 'lead', `/${skill} 開始，等待派票`)
+  const origin = source.originOfArgs(args)
+  // With no spec named the workflow waits for tickets; with one, it begins when that is read.
+  if (origin !== undefined && !(await loadFeature($, source, origin))) return false
+  await enterWorkflow($, false)
+  return true
+}
+
 /** The workflow screen goes up; `isManual` when it is `/swarm <folder>` with no workflow. */
 export async function enterWorkflow($: EngineInterface, isManual: boolean) {
   await updateSwarm($, (s): Swarm => ({ ...s, mode: 'workflow', isManual: isManual ? true : undefined }))
@@ -143,10 +171,17 @@ type PromptTicket = {
  * screen is up on `s`.
  */
 export async function ticketOfPrompt($: EngineInterface, prompt: string, s: Swarm, workflow: Workflow | undefined, now: number, shown: boolean): Promise<PromptTicket> {
-  const sources = shown && s.feature ? [sourceById(s.feature.sourceId, workflow)] : (workflow?.sources ?? [])
+  const loaded = shown ? s.feature : undefined
+  const sources = loaded ? [sourceById(loaded.sourceId, workflow)] : (workflow?.sources ?? [])
   let ref: TicketRef | undefined
   for (const src of sources) ref ??= src.refOfText(prompt, s.feature)
-  if (!ref && !(shown && s.feature) && workflow?.sources.some(src => src.mayNameTicket?.(prompt))) ref = await resolveUnloaded($, workflow, prompt, now, s)
+  // No batch on the screen, or the one on it is all done: the prompt's ticket may belong to another spec.
+  const isBatchDone = loaded !== undefined && loaded.tickets.every(t => isDone(t, new Set(loaded.merged)))
+  if (!ref && (!loaded || isBatchDone) && workflow?.sources.some(src => src.mayNameTicket?.(prompt))) {
+    ref = await resolveUnloaded($, workflow, prompt, now, s)
+    // the spec on the screen: nothing to switch to
+    if (loaded && ref?.origin === loaded.origin) return {}
+  }
 
   if (!ref) return {}
   if (shown && s.feature?.origin === ref.origin) return { ticket: ref.ticket, ticketNumber: ref.number }
