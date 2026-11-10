@@ -1,7 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { AgentPhase, Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
-import { homeBeeCount, paneModelOf, returningCards } from '../hooks/pane-model'
+import { homeBeeCount, returningCards } from '../hooks/bee-route'
+import { paneModelOf } from '../hooks/pane-model'
 import { isEveryTicketDone } from '../hooks/ticket-done'
 
 // The pane model on its own: no pane, no plugin, no mock.

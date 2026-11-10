@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+import { CARDS_LEFT, CARDS_TOP, LEAD_TALLY_ROW, LEAD_TEXT_LEFT } from '../hooks/bee-route'
 import { cells } from '../hooks/text-format'
 
 // A bee flies along the top of every subagent card at work and, when the
@@ -31,9 +32,10 @@ function engine(on: On, world: World = { invalidations: 0 }) {
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.status', () => ({ value: undefined }))
   on('ui.panes', () => ({ value: [{ id: 'hive', title: 'Hive', isShown: true, isFocused: false, isPlaced: true }] }))
-  on('ui.invalidate', () => {
+  // counted, and passed on, so a pane that stays mounted is drawn again
+  on('ui.invalidate', (_: unknown, e: unknown, next: (e: unknown) => unknown) => {
     world.invalidations += 1
-    return { value: undefined }
+    return next(e)
   })
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `agent-${++n}` }))
@@ -130,15 +132,37 @@ test('the bee takes no cell of the card: its title, right side and width are the
 
 // ------------------------------------------------------------ the return
 
-// At 80 columns the cards are two to a row, 38 wide, and the first row starts 5 rows under
-// the lead's top: the lead's four, the delegates line. The tally is on the lead's third row.
-const CARDS_TOP = 5
-const TALLY_ROW = 2
+// At 80 columns the cards are two to a row, 38 wide. The rows and columns come from the layout
+// the pane is drawn from (hooks/bee-route), so a change of the layout moves the pane and the test together.
+const TALLY_ROW = LEAD_TALLY_ROW
+
+/** The cell of the bee in the tally as drawn on `tree` at `columns`: where a bee landing on it must end. */
+const tallyBeeSpot = (tree: Node, columns: number) => {
+  const tally = tallyOf(tree)
+  const isHinted = text(tree).includes('派票')
+  const inner = columns - 4
+  return {
+    row: TALLY_ROW,
+    col: LEAD_TEXT_LEFT + (isHinted ? inner - cells(tally) : 0) + cells(tally.slice(0, tally.indexOf('🐝'))),
+  }
+}
+/**
+ * Lets the bee of the subagent that just finished fly, and returns the cell it was at the
+ * last millisecond of its flight, with the pane drawn once it landed.
+ */
+async function lastCellAndLanded($: any, clock: { advance: (ms: number) => Promise<unknown> }, bodyColumns = 80) {
+  await clock.advance(RETURN_MS - 1)
+  const flying = flyingOf(await drawn($, bodyColumns))
+  await clock.advance(1)
+  return { flying, landed: await drawn($, bodyColumns) }
+}
 
 test('a finished subagent flies its bee from its card to the lead, along a line, in a second', ON, async ($, on) => {
   const clock = engine(on)
   await start($)
   await spawn($)
+  // where the bee is on the card as it finishes
+  const takeoffCol = CARDS_LEFT + beeLeftOf(cardOf(await drawn($), 'agent-1'))
   await finish($, 'agent-1')
 
   const seen = await frames($, clock)
@@ -149,24 +173,30 @@ test('a finished subagent flies its bee from its card to the lead, along a line,
     expect(beesOn(cardOf(tree, 'agent-1'))).toHaveLength(0)
     return bees[0]!
   })
-  // it takes off from the card's top edge, over the card's own columns (2 to 39; the bee 2 wide)
-  expect(path[0]!.row).toBe(CARDS_TOP)
-  expect(path[0]!.col).toBeGreaterThanOrEqual(3)
-  expect(path[0]!.col).toBeLessThanOrEqual(2 + 38 - 3)
+  // it takes off from the card's top edge, in the column it was in as the subagent finished
+  expect(path[0]).toEqual({ row: CARDS_TOP, col: takeoffCol })
   // rows and columns both only go toward the lead's tally, and a line is walked, not jumped
   for (let i = 1; i < path.length; i++) {
     expect(path[i]!.row).toBeLessThanOrEqual(path[i - 1]!.row)
     expect(path[i]!.col).toBeGreaterThanOrEqual(path[i - 1]!.col)
   }
   expect(new Set(path.map(p => p.row)).size).toBeGreaterThan(2)
-  // the last frame is next to the tally's bee: "已派 1 · " is 9 cells after the frame and its padding
-  const last = path[path.length - 1]!
-  expect(last.row).toBe(TALLY_ROW)
-  expect(Math.abs(last.col - (2 + 9))).toBeLessThanOrEqual(2)
   // and then it is gone, the card the finished card it always was
   const after = await drawn($)
   expect(flyingOf(after)).toHaveLength(0)
   expect(text(cardOf(after, 'agent-1'))).toContain('✓')
+})
+
+test('the bee ends on the very cell of the bee in the tally', ON, async ($, on) => {
+  const clock = engine(on)
+  await start($)
+  await spawn($)
+  await finish($, 'agent-1')
+
+  const { flying, landed } = await lastCellAndLanded($, clock)
+  expect(flying).toEqual([tallyBeeSpot(landed, 80)])
+  // "已派 1 · " is 9 cells in, after the frame and its padding
+  expect(flying[0]!.col).toBe(LEAD_TEXT_LEFT + cells('已派 1 · '))
 })
 
 test('the bee lands on the tally and only then does the lead count it', ON, async ($, on) => {
@@ -188,11 +218,11 @@ test('the bee of a second row card leaves from that row and takes the same secon
   await spawn($)
   // the finished card is drawn last: the third, at the start of the second row. The first row's
   // cards are 4 lines tall (no ticket), so that row starts 4 rows under the first.
+  const takeoffCol = CARDS_LEFT + beeLeftOf(cardOf(await drawn($), 'agent-3'))
   await finish($, 'agent-3')
 
   const path = (await frames($, clock)).map(tree => flyingOf(tree)[0]!)
-  expect(path[0]!.row).toBe(CARDS_TOP + 4)
-  expect(path[0]!.col).toBeGreaterThanOrEqual(3)
+  expect(path[0]).toEqual({ row: CARDS_TOP + 4, col: takeoffCol })
   for (let i = 1; i < path.length; i++) expect(path[i]!.row).toBeLessThanOrEqual(path[i - 1]!.row)
   expect(path[path.length - 1]!.row).toBe(TALLY_ROW)
   expect(flyingOf(await drawn($))).toHaveLength(0)
@@ -360,15 +390,19 @@ test('narrow, the bee flies and the count shows, and nothing is pushed out of th
     expect(first.col + 2).toBeLessThanOrEqual(columns)
     expect(first.row).toBeGreaterThan(TALLY_ROW)
   }
-  await clock.advance(RETURN_MS - REDRAW_MS)
+  // the last millisecond of the flight, at each width, on the tally's bee exactly
+  await clock.advance(RETURN_MS - 1)
+  const lasts = new Map<number, Node[]>()
   for (const columns of [24, 56, 84]) {
-    const last = flyingOf(await drawn($, columns))[0]!
-    expect(last.col + 2).toBeLessThanOrEqual(columns)
-    expect(last.row).toBe(TALLY_ROW)
-    // narrow, the lead's tally begins at the lead's own text: "已派 2 · " is 9 cells in
-    expect(Math.abs(last.col - (2 + 9))).toBeLessThanOrEqual(2)
+    const last = flyingOf(await drawn($, columns))
+    expect(last).toHaveLength(1)
+    expect(last[0]!.col + 2).toBeLessThanOrEqual(columns)
+    lasts.set(columns, last as never)
   }
-  await clock.advance(REDRAW_MS)
+  await clock.advance(1)
+  for (const columns of [24, 56, 84]) {
+    expect(lasts.get(columns)).toEqual([tallyBeeSpot(await drawn($, columns), columns)])
+  }
 
   for (const columns of [24, 56, 84]) {
     const tree = await drawn($, columns)
@@ -441,18 +475,18 @@ test('workflow view: a ticket card, implementing or reviewing, has a bee and it 
   expect(beesOn(cardOf(tree, 'agent-1'))[0]!.props!['top']).toBe(0)
 
   await finish($, 'agent-1')
-  await clock.advance(RETURN_MS - REDRAW_MS)
+  await clock.advance(RETURN_MS - 1)
   const returning = await drawn($)
   expect(beesOn(cardOf(returning, 'agent-1'))).toHaveLength(0)
   expect(flyingOf(returning)).toHaveLength(1)
-  // the lead's tally sits at the right here, its hint to the left: the bee lands in it,
-  // at "已派 2 · " (9 cells) into a tally of 26 that ends at the lead's right edge (76 wide inside)
-  const landed = flyingOf(returning)[0]!
-  expect(landed.row).toBe(TALLY_ROW)
-  expect(Math.abs(landed.col - (2 + 76 - 26 + 9))).toBeLessThanOrEqual(3)
+  // the lead's tally sits at the right here, its hint to the left: the bee lands on the bee in it
+  const landing = flyingOf(returning)[0]!
 
-  await clock.advance(REDRAW_MS)
-  expect(flyingOf(await drawn($))).toHaveLength(0)
+  await clock.advance(1)
+  const landed = await drawn($)
+  expect(text(landed)).toContain('派票')
+  expect(landing).toEqual(tallyBeeSpot(landed, 80))
+  expect(flyingOf(landed)).toHaveLength(0)
 })
 
 test('workflow view: the bee leaves from the card as drawn after finishing, when the cards moved and shrank', WF, async ($, on) => {
@@ -461,12 +495,13 @@ test('workflow view: the bee leaves from the card as drawn after finishing, when
   await spawnTicket($, '01-schema.md')
   await spawnTicket($, '02-api.md')
   await spawnTicket($, '01-schema.md')
+  const takeoffCol = CARDS_LEFT + beeLeftOf(cardOf(await drawn($), 'agent-1'))
   // agent-1 finishes: it drops behind the two that still work (5 lines tall each), a done ticket
   // card now 3 lines tall. It is the third card: first column of the second row.
   await finish($, 'agent-1')
 
   const first = flyingOf(await drawn($))[0]!
-  expect(first.row).toBe(CARDS_TOP + 5)
+  expect(first).toEqual({ row: CARDS_TOP + 5, col: takeoffCol })
   await clock.advance(RETURN_MS)
   expect(flyingOf(await drawn($))).toHaveLength(0)
 })
@@ -539,4 +574,65 @@ test('animation off: a failed subagent has no bee', OFF, async ($, on) => {
   await fail($, 'agent-1')
 
   expect(beesOn(cardOf(await drawn($), 'agent-1'))).toHaveLength(0)
+})
+
+// ------------------------------------------------------------ the lead's line, the last frame
+
+test('workflow view: the lead keeps its tally on one row at every width, and the bee still lands on it', WF, async ($, on) => {
+  const clock = workflowEngine(on)
+  await start($)
+  await spawnTicket($, '01-schema.md')
+  await spawnTicket($, '02-api.md')
+  await finish($, 'agent-1')
+  await clock.advance(RETURN_MS - 1)
+
+  // from the narrowest width that is not narrow to well past where the hint and tally fit side by side
+  const widths = Array.from({ length: 20 }, (_, i) => 40 + i)
+  const lasts = new Map<number, unknown>()
+  for (const columns of widths) lasts.set(columns, flyingOf(await drawn($, columns)))
+  await clock.advance(1)
+
+  for (const columns of widths) {
+    const tree = await drawn($, columns)
+    const row = find(tree, n => n.props?.justifyContent === 'space-between' && text(n).includes('已派'))[0]!
+    const texts = (row.children ?? []).map(c => String((c as Node).children?.[0]))
+    expect(texts.length).toBeLessThanOrEqual(2)
+    // the hint and the tally, and a cell between, are no wider than the lead's line
+    const used = texts.reduce((n, t) => n + cells(t), 0) + (texts.length - 1)
+    expect(used).toBeLessThanOrEqual(columns - 4)
+    expect(lasts.get(columns)).toEqual([tallyBeeSpot(tree, columns)])
+  }
+})
+
+test('the bee that makes the count 10 lands one cell further left, as the tally will then read', WF, async ($, on) => {
+  const clock = workflowEngine(on)
+  await start($)
+  for (let i = 0; i < 10; i++) await spawnTicket($, '01-schema.md')
+  for (let i = 1; i <= 9; i++) await finish($, `agent-${i}`)
+  await clock.advance(RETURN_MS)
+  expect(tallyOf(await drawn($))).toContain('🐝 9')
+
+  await finish($, 'agent-10')
+  const { flying, landed } = await lastCellAndLanded($, clock)
+  expect(tallyOf(landed)).toContain('🐝 10')
+  expect(flying).toEqual([tallyBeeSpot(landed, 80)])
+})
+
+test('the same mounted pane ends on the bee gone and the count one more, however the ticks fell', ON, async ($, on) => {
+  const world: World = { invalidations: 0 }
+  const clock = engine(on, world)
+  await start($)
+  await spawn($)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await finish($, 'agent-1')
+  let last = (await ui.drawn()) as Node
+  for (let t = 0; t < RETURN_MS + 4 * REDRAW_MS; t += 20) {
+    await clock.advance(20)
+    await clock.settle()
+    last = (await ui.drawn()) as Node
+  }
+  await ui.unmount()
+  expect(flyingOf(last)).toHaveLength(0)
+  expect(tallyOf(last)).toBe('已派 1 · 🐝 1')
 })
