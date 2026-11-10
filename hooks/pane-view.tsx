@@ -5,6 +5,7 @@
 import type { EngineInterface } from 'claude-code'
 
 import type { Swarm, SwarmAgent } from '../types'
+import { ACCENT } from './accent'
 import { spinnerAt, sweptBar } from './animation'
 import { PHASE_LABEL, PHASE_PERCENT, isLive } from './agent-phase'
 import { workflowLine } from './pane-model'
@@ -164,7 +165,7 @@ export function drawPane(
   // The workflow's own line: which workflow, and which ticket source the project names.
   const statusLine = workflow ? workflowLine(workflow, s) : undefined
 
-  const featureColor = isFeatureDone ? 'success' : 'claude'
+  const featureColor = isFeatureDone ? 'success' : ACCENT
   const featureTail = isNarrow
     ? ` ${String(featurePercent).padStart(3)}% ${resolvedCount}/${tickets.length}`
     : ` ${String(featurePercent).padStart(3)}%  ${resolvedCount}/${tickets.length} 票 · step ${Math.min(currentStep, stepCount)}/${stepCount}`
@@ -181,7 +182,7 @@ export function drawPane(
   return (
     <Box flexDirection="column" width={W}>
       <Box justifyContent="space-between">
-        <Text bold color="claude">{isNarrow || !isWorkflowView ? 'SWARM' : 'IMPLEMENT SWARM'}</Text>
+        <Text bold color={ACCENT}>{isNarrow || !isWorkflowView ? 'SWARM' : 'IMPLEMENT SWARM'}</Text>
         <Text color={failed.length ? 'error' : undefined} dimColor={!failed.length}>
           {clip(summary, Math.max(6, W - (isNarrow ? 7 : 17)))}
         </Text>
@@ -196,7 +197,7 @@ export function drawPane(
       {feature && (
         <Box flexDirection="column" borderStyle="round" borderColor={featureColor} paddingX={1}>
           <Text wrap="truncate-end">
-            <Text bold color="claude">feature </Text>
+            <Text bold color={ACCENT}>feature</Text>
             <Text bold>{clip(feature.name, Math.max(4, boxInner - 8))}</Text>
           </Text>
           {tickets.length > 0 && (
@@ -212,9 +213,9 @@ export function drawPane(
         </Box>
       )}
 
-      <Box borderStyle="round" borderColor="claude" paddingX={1} flexDirection="column">
+      <Box borderStyle="round" borderColor={ACCENT} paddingX={1} flexDirection="column">
         <Text wrap="truncate-end">
-          <Text bold color="claude">lead</Text>
+          <Text bold color={ACCENT}>lead</Text>
           <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, boxInner - 4)}</Text>
         </Text>
         <Box justifyContent="space-between">

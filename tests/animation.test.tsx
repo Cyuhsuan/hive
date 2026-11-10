@@ -95,7 +95,11 @@ const barOf = async ($: any, bodyColumns = 80): Promise<Run[]> => {
   await ui.unmount()
   return runs
 }
-const isLit = (run: Run) => run.color.startsWith('#')
+const ACCENT = '#c084fc'
+const GLOW_PEAK = '#f3e8ff'
+/** A tinted cell: any `#rrggbb` but the accent, which is the bar's own color. */
+const isTint = (color: string) => color.startsWith('#') && color !== ACCENT
+const isLit = (run: Run) => isTint(run.color)
 const cellsOf = (runs: Run[]) => runs.flatMap(run => [...run.text].map(ch => ({ ch, color: run.color })))
 /** How bright a tint is: its channels summed. */
 const brightness = (color: string) => [1, 3, 5].reduce((n, i) => n + parseInt(color.slice(i, i + 2), 16), 0)
@@ -104,7 +108,7 @@ const crestOf = (runs: Run[]) => {
   const all = cellsOf(runs)
   let best = -1
   all.forEach((cell, i) => {
-    if (cell.color.startsWith('#') && (best < 0 || brightness(cell.color) > brightness(all[best]!.color))) best = i
+    if (isTint(cell.color) && (best < 0 || brightness(cell.color) > brightness(all[best]!.color))) best = i
   })
   return best
 }
@@ -199,7 +203,7 @@ test('a soft band of light glides across the filled cells of the feature bar and
     shape = drawn
     expect(drawn).toMatch(/^█+░+$/)
     // no empty cell is ever lit
-    expect(all.some(cell => cell.ch === '░' && cell.color.startsWith('#'))).toBe(false)
+    expect(all.some(cell => cell.ch === '░' && isTint(cell.color))).toBe(false)
     const lit = runs.filter(isLit)
     lit.forEach(run => tints.add(run.color))
     widest = Math.max(widest, lit.reduce((n, run) => n + run.text.length, 0))
@@ -266,6 +270,86 @@ test('off is the pane as it was: the dot, the plain bar, no frame', OFF, async (
   expect(text).toContain(dotOf('●'))
   expect((await barOf($)).some(isLit)).toBe(false)
   expect(BRAILLE.test(text)).toBe(false)
+})
+
+// ------------------------------------------------------------ the accent
+
+test('the light runs from the accent to #f3e8ff, and its brightest cell is #f3e8ff', ON, async ($, on) => {
+  const clock = engine(on)
+  await start($)
+  await $.tool.call({ tool: 'Skill', skill: 'mattpocock-skills:implement-spec', args: '.scratch/demo/spec.md' } as never)
+  await spawn($, '實作 .scratch/demo/issues/02-api.md')
+
+  const tints = new Set<string>()
+  for (let t = 0; t < 2000; t += 40) {
+    for (const run of await barOf($)) if (isLit(run)) tints.add(run.color)
+    await clock.advance(40)
+  }
+  const [from, to] = [ACCENT, GLOW_PEAK].map(hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)))
+  for (const tint of tints) {
+    [1, 3, 5].forEach((i, c) => {
+      const v = parseInt(tint.slice(i, i + 2), 16)
+      expect(v).toBeGreaterThanOrEqual(Math.min(from![c]!, to![c]!))
+      expect(v).toBeLessThanOrEqual(Math.max(from![c]!, to![c]!))
+    })
+  }
+  expect(tints.has(GLOW_PEAK)).toBe(true)
+})
+
+test('the title, feature, lead and their frames are the accent, wide or narrow, never the theme\'s claude', ON, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: 'Skill', skill: 'mattpocock-skills:implement-spec', args: '.scratch/demo/spec.md' } as never)
+  await spawn($, '實作 .scratch/demo/issues/02-api.md')
+  await finish($, 'agent-1')
+
+  for (const columns of [80, 24]) {
+    const text = await drawnText($, columns)
+    expect(text).not.toContain('"claude"')
+    // title, feature, feature frame, feature bar, lead, lead frame
+    expect(text.split(`"${ACCENT}"`).length - 1).toBe(6)
+  }
+})
+
+test('the observing pane draws its title, lead and lead frame in the accent', OBSERVE, async ($, on) => {
+  engine(on)
+  await start($)
+  await spawn($, '看看', '探索', 'Explore')
+
+  const text = await drawnText($)
+  expect(text).not.toContain('"claude"')
+  expect(text.split(`"${ACCENT}"`).length - 1).toBe(3)
+})
+
+test('animation off, the whole bar is the accent', OFF, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: 'Skill', skill: 'mattpocock-skills:implement-spec', args: '.scratch/demo/spec.md' } as never)
+  await spawn($, '實作 .scratch/demo/issues/02-api.md')
+
+  const filled = (await barOf($)).filter(run => run.text.includes('█'))
+  expect(filled).toHaveLength(1)
+  expect(filled[0]!.color).toBe(ACCENT)
+})
+
+test('a finished feature has its frame and bar in success, not the accent', ON, async ($, on) => {
+  engine(on)
+  const original = TICKETS['02-api.md']!
+  const original3 = TICKETS['03-page.md']!
+  TICKETS['02-api.md'] = original.replace('ready-for-agent', 'resolved')
+  TICKETS['03-page.md'] = original3.replace('ready-for-agent', 'resolved')
+  try {
+    await start($)
+    await $.tool.call({ tool: 'Skill', skill: 'mattpocock-skills:implement-spec', args: '.scratch/demo/spec.md' } as never)
+
+    const bar = (await barOf($)).filter(run => run.text.includes('█'))
+    expect(bar.map(run => run.color)).toEqual(['success'])
+    // title, feature, lead and its frame are still the accent
+    expect((await drawnText($)).split(`"${ACCENT}"`).length - 1).toBe(4)
+  } finally {
+    TICKETS['02-api.md'] = original
+    TICKETS['03-page.md'] = original3
+  }
 })
 
 // ------------------------------------------------------------ the redraws
