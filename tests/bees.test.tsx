@@ -3,8 +3,8 @@ import { expect, mock, test } from 'claude-code/testing'
 import { cells } from '../hooks/text-format'
 
 // A bee flies along the top of every subagent card at work and, when the
-// subagent finishes, leaves the card in about a second. The lead's frame counts
-// the bees that came home. The bee is laid over the card: nothing moves for it.
+// subagent finishes, flies from the card to the lead in a second. The lead's frame
+// counts the bees that landed. A bee is laid over the pane: nothing moves for it.
 
 const ON = { options: { workflow: 'none' } }
 const OFF = { options: { workflow: 'none', animation: 'off' } }
@@ -67,6 +67,27 @@ const framedOf = (card: Node) => find(card, n => n.props?.borderStyle !== undefi
 /** The bees laid over a card: absolute boxes holding the bee. */
 const beesOn = (card: Node) => find(card, n => n.props?.position === 'absolute' && text(n).includes('🐝'))
 const beeLeftOf = (card: Node) => beesOn(card)[0]!.props!['left'] as number
+/**
+ * The bees on their way home: laid over the hive (the lead, the delegates line and the
+ * cards), at a row and a column counted from the lead's top left corner.
+ */
+const flyingOf = (tree: Node) =>
+  find(tree, n => String(n.props?.key).startsWith('home-')).map(n => ({ row: n.props!['top'] as number, col: n.props!['left'] as number }))
+/** The tree as it is laid out: flying bees taken out, as they are laid over the rest and move nothing. */
+const withoutFlying = (node: Node): Node => ({
+  ...node,
+  children: (node.children ?? []).filter(c => !String((c as Node).props?.key).startsWith('home-')).map(c => withoutFlying(c as Node)),
+})
+const tallyOf = (tree: Node) => String(find(tree, n => n.type === 'Text' && text(n).includes('已派'))[0]!.children?.[0])
+/** Draws the pane every frame for the length of the return and a frame past it. */
+async function frames($: any, clock: { advance: (ms: number) => Promise<unknown> }, bodyColumns = 80) {
+  const out: Node[] = []
+  for (let t = 0; t <= RETURN_MS; t += REDRAW_MS) {
+    out.push(await drawn($, bodyColumns))
+    await clock.advance(REDRAW_MS)
+  }
+  return out
+}
 
 // ------------------------------------------------------------ the flight
 
@@ -109,37 +130,94 @@ test('the bee takes no cell of the card: its title, right side and width are the
 
 // ------------------------------------------------------------ the return
 
-test('a finished subagent keeps its bee for a second, flying on, then none', ON, async ($, on) => {
+// At 80 columns the cards are two to a row, 38 wide, and the first row starts 5 rows under
+// the lead's top: the lead's four, the delegates line. The tally is on the lead's third row.
+const CARDS_TOP = 5
+const TALLY_ROW = 2
+
+test('a finished subagent flies its bee from its card to the lead, along a line, in a second', ON, async ($, on) => {
   const clock = engine(on)
   await start($)
   await spawn($)
   await finish($, 'agent-1')
 
-  const lefts = new Set<number>()
-  for (let t = 0; t < RETURN_MS; t += 100) {
-    const card = cardOf(await drawn($), 'agent-1')
-    expect(beesOn(card)).toHaveLength(1)
-    lefts.add(beeLeftOf(card))
-    await clock.advance(100)
+  const seen = await frames($, clock)
+  const path = seen.map(tree => {
+    const bees = flyingOf(tree)
+    expect(bees).toHaveLength(1)
+    // none is left on the card itself
+    expect(beesOn(cardOf(tree, 'agent-1'))).toHaveLength(0)
+    return bees[0]!
+  })
+  // it takes off from the card's top edge, over the card's own columns (2 to 39; the bee 2 wide)
+  expect(path[0]!.row).toBe(CARDS_TOP)
+  expect(path[0]!.col).toBeGreaterThanOrEqual(3)
+  expect(path[0]!.col).toBeLessThanOrEqual(2 + 38 - 3)
+  // rows and columns both only go toward the lead's tally, and a line is walked, not jumped
+  for (let i = 1; i < path.length; i++) {
+    expect(path[i]!.row).toBeLessThanOrEqual(path[i - 1]!.row)
+    expect(path[i]!.col).toBeGreaterThanOrEqual(path[i - 1]!.col)
   }
-  expect(lefts.size).toBeGreaterThan(3)
-  expect(beesOn(cardOf(await drawn($), 'agent-1'))).toHaveLength(0)
-  // the card is the finished card it always was
-  expect(text(cardOf(await drawn($), 'agent-1'))).toContain('✓')
+  expect(new Set(path.map(p => p.row)).size).toBeGreaterThan(2)
+  // the last frame is next to the tally's bee: "已派 1 · " is 9 cells after the frame and its padding
+  const last = path[path.length - 1]!
+  expect(last.row).toBe(TALLY_ROW)
+  expect(Math.abs(last.col - (2 + 9))).toBeLessThanOrEqual(2)
+  // and then it is gone, the card the finished card it always was
+  const after = await drawn($)
+  expect(flyingOf(after)).toHaveLength(0)
+  expect(text(cardOf(after, 'agent-1'))).toContain('✓')
 })
 
-test('the returning bee leaves past the card edge', ON, async ($, on) => {
+test('the bee lands on the tally and only then does the lead count it', ON, async ($, on) => {
+  const clock = engine(on)
+  await start($)
+  await spawn($)
+  await spawn($)
+  await finish($, 'agent-1')
+
+  for (const tree of await frames($, clock)) expect(tallyOf(tree)).toBe('已派 2')
+  expect(tallyOf(await drawn($))).toBe('已派 2 · 🐝 1')
+})
+
+test('the bee of a second row card leaves from that row and takes the same second', ON, async ($, on) => {
+  const clock = engine(on)
+  await start($)
+  await spawn($)
+  await spawn($)
+  await spawn($)
+  // the finished card is drawn last: the third, at the start of the second row. The first row's
+  // cards are 4 lines tall (no ticket), so that row starts 4 rows under the first.
+  await finish($, 'agent-3')
+
+  const path = (await frames($, clock)).map(tree => flyingOf(tree)[0]!)
+  expect(path[0]!.row).toBe(CARDS_TOP + 4)
+  expect(path[0]!.col).toBeGreaterThanOrEqual(3)
+  for (let i = 1; i < path.length; i++) expect(path[i]!.row).toBeLessThanOrEqual(path[i - 1]!.row)
+  expect(path[path.length - 1]!.row).toBe(TALLY_ROW)
+  expect(flyingOf(await drawn($))).toHaveLength(0)
+})
+
+test('flying bees move nothing: the pane is laid out the same before, during and after the return', ON, async ($, on) => {
   const clock = engine(on)
   await start($)
   await spawn($)
   await finish($, 'agent-1')
-  await clock.advance(RETURN_MS - REDRAW_MS)
 
-  // From the card's left edge, its right frame is column 37 of its 38: a bee at 38 or more
-  // (two cells wide) lies wholly past it, and further right than a flying bee ever goes (35).
-  const left = beeLeftOf(cardOf(await drawn($), 'agent-1'))
-  expect(left).toBeGreaterThanOrEqual(38)
-  expect(left).toBeGreaterThan(38 - 3)
+  // the clocks in the summary and the card tick on; what is compared is the boxes and their sizes
+  const boxes = (node: Node): unknown => ({
+    type: node.type,
+    props: node.props,
+    children: (node.children ?? []).filter(c => typeof (c as Node).type === 'string').map(c => boxes(c as Node)),
+  })
+  const shape = (tree: Node) => JSON.stringify(boxes(withoutFlying(tree)))
+  const seen = await frames($, clock)
+  const layouts = seen.map(shape)
+  expect(new Set(layouts).size).toBe(1)
+  // after it, the layout is the same still: only the lead's count changed
+  const after = await drawn($)
+  expect(shape(after)).toBe(layouts[0])
+  expect(tallyOf(after)).toBe('已派 1 · 🐝 1')
 })
 
 test('a failed subagent has no bee the moment it fails, and keeps its red frame', ON, async ($, on) => {
@@ -206,7 +284,7 @@ test('a failed subagent starts no redraws', ON, async ($, on) => {
 // ------------------------------------------------------------ the hive
 
 test('the lead counts the bees home: finished ones, not failed, and nothing at 0', ON, async ($, on) => {
-  engine(on)
+  const clock = engine(on)
   await start($)
   await spawn($)
   await spawn($)
@@ -217,15 +295,80 @@ test('the lead counts the bees home: finished ones, not failed, and nothing at 0
   await finish($, 'agent-1')
   await finish($, 'agent-2')
   await fail($, 'agent-3')
-  expect(text(await drawn($))).toContain('已派 3 · 🐝 2')
+  // both bees are still in the air: neither is counted yet
+  expect(tallyOf(await drawn($))).toBe('已派 3')
+  await clock.advance(RETURN_MS)
+  expect(tallyOf(await drawn($))).toBe('已派 3 · 🐝 2')
+})
+
+test('bees that finish a moment apart are counted one by one as each lands', ON, async ($, on) => {
+  const clock = engine(on)
+  await start($)
+  await spawn($)
+  await spawn($)
+  await finish($, 'agent-1')
+  await clock.advance(500)
+  await finish($, 'agent-2')
+
+  await clock.advance(500)
+  expect(tallyOf(await drawn($))).toBe('已派 2 · 🐝 1')
+  expect(flyingOf(await drawn($))).toHaveLength(1)
+  await clock.advance(500)
+  expect(tallyOf(await drawn($))).toBe('已派 2 · 🐝 2')
+  expect(flyingOf(await drawn($))).toHaveLength(0)
+})
+
+test('a failed subagent flies no bee and is not counted', ON, async ($, on) => {
+  const clock = engine(on)
+  await start($)
+  await spawn($)
+  await fail($, 'agent-1')
+
+  expect(flyingOf(await drawn($))).toHaveLength(0)
+  await clock.advance(RETURN_MS)
+  expect(tallyOf(await drawn($))).toBe('已派 1')
+})
+
+test('observing, a done card folded into the "more done" line flies no bee and counts at once', ON, async ($, on) => {
+  const clock = engine(on)
+  await start($)
+  for (let i = 0; i < 6; i++) await spawn($)
+  // six finish, a moment apart: only the latest five are drawn, the first is folded away
+  for (let i = 1; i <= 6; i++) {
+    await finish($, `agent-${i}`)
+    await clock.advance(10)
+  }
+
+  const tree = await drawn($)
+  expect(text(tree)).toContain('另有 1 個已完成')
+  expect(flyingOf(tree)).toHaveLength(5)
+  expect(tallyOf(tree)).toBe('已派 6 · 🐝 1')
+  await clock.advance(RETURN_MS)
+  expect(tallyOf(await drawn($))).toBe('已派 6 · 🐝 6')
 })
 
 test('narrow, the bee flies and the count shows, and nothing is pushed out of the frames at any width', ON, async ($, on) => {
-  engine(on)
+  const clock = engine(on)
   await start($)
   await spawn($)
   await spawn($)
   await finish($, 'agent-2')
+
+  // in the air, it stays inside the pane from the first frame to the last and lands on the tally
+  for (const columns of [24, 56, 84]) {
+    const first = flyingOf(await drawn($, columns))[0]!
+    expect(first.col + 2).toBeLessThanOrEqual(columns)
+    expect(first.row).toBeGreaterThan(TALLY_ROW)
+  }
+  await clock.advance(RETURN_MS - REDRAW_MS)
+  for (const columns of [24, 56, 84]) {
+    const last = flyingOf(await drawn($, columns))[0]!
+    expect(last.col + 2).toBeLessThanOrEqual(columns)
+    expect(last.row).toBe(TALLY_ROW)
+    // narrow, the lead's tally begins at the lead's own text: "已派 2 · " is 9 cells in
+    expect(Math.abs(last.col - (2 + 9))).toBeLessThanOrEqual(2)
+  }
+  await clock.advance(REDRAW_MS)
 
   for (const columns of [24, 56, 84]) {
     const tree = await drawn($, columns)
@@ -259,6 +402,7 @@ test('animation off: the bee waits still on a live card, none after the finish, 
   await finish($, 'agent-2')
   const tree = await drawn($)
   expect(beesOn(cardOf(tree, 'agent-2'))).toHaveLength(0)
+  expect(flyingOf(tree)).toHaveLength(0)
   expect(text(tree)).toContain('已派 2 · 🐝 1')
 })
 
@@ -298,31 +442,59 @@ test('workflow view: a ticket card, implementing or reviewing, has a bee and it 
 
   await finish($, 'agent-1')
   await clock.advance(RETURN_MS - REDRAW_MS)
-  const returning = cardOf(await drawn($), 'agent-1')
-  expect(beesOn(returning)).toHaveLength(1)
-  expect(beeLeftOf(returning)).toBeGreaterThanOrEqual(38)
+  const returning = await drawn($)
+  expect(beesOn(cardOf(returning, 'agent-1'))).toHaveLength(0)
+  expect(flyingOf(returning)).toHaveLength(1)
+  // the lead's tally sits at the right here, its hint to the left: the bee lands in it,
+  // at "已派 2 · " (9 cells) into a tally of 26 that ends at the lead's right edge (76 wide inside)
+  const landed = flyingOf(returning)[0]!
+  expect(landed.row).toBe(TALLY_ROW)
+  expect(Math.abs(landed.col - (2 + 76 - 26 + 9))).toBeLessThanOrEqual(3)
 
   await clock.advance(REDRAW_MS)
-  expect(beesOn(cardOf(await drawn($), 'agent-1'))).toHaveLength(0)
+  expect(flyingOf(await drawn($))).toHaveLength(0)
+})
+
+test('workflow view: the bee leaves from the card as drawn after finishing, when the cards moved and shrank', WF, async ($, on) => {
+  const clock = workflowEngine(on)
+  await start($)
+  await spawnTicket($, '01-schema.md')
+  await spawnTicket($, '02-api.md')
+  await spawnTicket($, '01-schema.md')
+  // agent-1 finishes: it drops behind the two that still work (5 lines tall each), a done ticket
+  // card now 3 lines tall. It is the third card: first column of the second row.
+  await finish($, 'agent-1')
+
+  const first = flyingOf(await drawn($))[0]!
+  expect(first.row).toBe(CARDS_TOP + 5)
+  await clock.advance(RETURN_MS)
+  expect(flyingOf(await drawn($))).toHaveLength(0)
 })
 
 test('workflow view: the lead reads 已派 N, then 🐝 K, then 已 merge M', WF, async ($, on) => {
-  workflowEngine(on)
+  const clock = workflowEngine(on)
   await start($)
   await spawnTicket($, '01-schema.md')
   await spawnTicket($, '02-api.md')
   await finish($, 'agent-1')
 
-  const tally = find(await drawn($), n => n.type === 'Text' && text(n).includes('已派'))[0]!
-  expect(String(tally.children?.[0])).toBe('已派 2 · 🐝 1 · 已 merge 0')
+  expect(tallyOf(await drawn($))).toBe('已派 2 · 已 merge 0')
+  await clock.advance(RETURN_MS)
+  expect(tallyOf(await drawn($))).toBe('已派 2 · 🐝 1 · 已 merge 0')
 })
 
 test('workflow view: at 24, 56 and 84 columns the step chart, the cards and the lead hold their frames', WF, async ($, on) => {
-  workflowEngine(on)
+  const clock = workflowEngine(on)
   await start($)
   await spawnTicket($, '01-schema.md')
   await spawnTicket($, '02-api.md')
   await finish($, 'agent-2')
+  for (const columns of [24, 56, 84]) {
+    const flying = flyingOf(await drawn($, columns))
+    expect(flying).toHaveLength(1)
+    expect(flying[0]!.col + 2).toBeLessThanOrEqual(columns)
+  }
+  await clock.advance(RETURN_MS)
 
   for (const columns of [24, 56, 84]) {
     const tree = await drawn($, columns)
@@ -356,6 +528,8 @@ test('workflow view, animation off: a still bee on a live ticket card, none once
   const tree = await drawn($)
   expect(beesOn(cardOf(tree, 'agent-1'))).toHaveLength(0)
   expect(beesOn(cardOf(tree, 'agent-2'))).toHaveLength(0)
+  expect(flyingOf(tree)).toHaveLength(0)
+  expect(tallyOf(tree)).toBe('已派 2 · 🐝 1 · 已 merge 0')
 })
 
 test('animation off: a failed subagent has no bee', OFF, async ($, on) => {

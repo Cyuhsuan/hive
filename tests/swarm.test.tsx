@@ -116,7 +116,7 @@ test('the pane draws at the narrowest dock the engine seats', WF, async ($, on) 
 })
 
 test('cards carry the ticket title, failed ones first, done ones on one line', WF, async ($, on) => {
-  mock.clock(on, { now: 1_700_000_000_000 })
+  const clock = mock.clock(on, { now: 1_700_000_000_000 })
   const TICKETS: Record<string, string> = {
     '01-schema.md': '# 01: 新增資料表\n\n**Blocked by:** None\n\n**Status:** ready-for-agent\n\n- [ ] a\n',
     '02-api.md': '# 02: 登入 API\n\n**Blocked by:** None\n\n**Status:** ready-for-agent\n\n- [ ] a\n',
@@ -143,6 +143,9 @@ test('cards carry the ticket title, failed ones first, done ones on one line', W
   // 01 finishes, 03 fails, 02 keeps running.
   await $.turn.complete({ agentId: 'agent-1', reason: 'answer', isAborted: false, durationMs: 1000, answer: 'ok' } as never)
   await $.turn.complete({ agentId: 'agent-3', reason: 'error', isAborted: false, durationMs: 1000, answer: '' } as never)
+
+  // The bee of 01 is home a second after it finished, and only then in the lead's count.
+  await clock.advance(1000)
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /02 登入 API/ })).toBeDefined()

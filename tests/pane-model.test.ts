@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { AgentPhase, Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
-import { paneModelOf } from '../hooks/pane-model'
+import { homeBeeCount, paneModelOf, returningCards } from '../hooks/pane-model'
 import { isEveryTicketDone } from '../hooks/ticket-done'
 
 // The pane model on its own: no pane, no plugin, no mock.
@@ -200,8 +200,39 @@ test('done: every ticket done needs each one merged or resolved', () => {
   expect(isEveryTicketDone(tickets, new Set(['2']))).toBe(true)
 })
 
-test('finishedAgentCount is the subagents that finished, failed ones left out', () => {
-  const s = swarm([], [agent('a', 'done'), agent('b', 'done'), agent('c', 'failed'), agent('d', 'reading')])
-  expect(paneModelOf(s, false).finishedAgentCount).toBe(2)
-  expect(paneModelOf(swarm([], [agent('c', 'failed')]), false).finishedAgentCount).toBe(0)
+// ------------------------------------------------ the bees home
+
+const ENDED = 100_000
+const homeOf = (s: Swarm, now: number, isAnimated = true, isWorkflowView = false) =>
+  homeBeeCount(paneModelOf(s, isWorkflowView), now, isAnimated)
+
+test('homeBeeCount is the subagents that finished, failed ones left out', () => {
+  const s = swarm([], [agent('a', 'done', { endedAt: 0 }), agent('b', 'done', { endedAt: 0 }), agent('c', 'failed'), agent('d', 'reading')])
+  expect(homeOf(s, ENDED)).toBe(2)
+  expect(homeOf(swarm([], [agent('c', 'failed', { endedAt: ENDED })]), ENDED)).toBe(0)
+})
+
+test('homeBeeCount leaves out a bee still flying and counts it the moment it lands', () => {
+  const s = swarm([], [agent('a', 'done', { endedAt: 0 }), agent('b', 'done', { endedAt: ENDED })])
+  expect(homeOf(s, ENDED)).toBe(1)
+  expect(homeOf(s, ENDED + 999)).toBe(1)
+  expect(homeOf(s, ENDED + 1000)).toBe(2)
+})
+
+test('homeBeeCount with animation off counts a finish at once', () => {
+  const s = swarm([], [agent('b', 'done', { endedAt: ENDED })])
+  expect(homeOf(s, ENDED, false)).toBe(1)
+  expect(returningCards(paneModelOf(s, false), ENDED, false)).toEqual([])
+})
+
+test('a done card folded into the "more done" line has no bee to fly: it counts at once', () => {
+  // observing keeps the five latest done cards; the sixth, earliest, is folded away
+  const agents = Array.from({ length: 6 }, (_, i) => agent(`a${i}`, 'done', { endedAt: ENDED + i }))
+  const now = ENDED + 10
+  const model = paneModelOf(swarm([], agents), false)
+  expect(model.hiddenDone).toBe(1)
+  expect(returningCards(model, now, true).map(a => a.id)).toEqual(['a1', 'a2', 'a3', 'a4', 'a5'])
+  expect(homeBeeCount(model, now, true)).toBe(1)
+  // the workflow view folds nothing: every done card is drawn, so every bee flies
+  expect(returningCards(paneModelOf(swarm([], agents), true), now, true)).toHaveLength(6)
 })
