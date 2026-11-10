@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Swarm } from '../types'
 import { isLive } from './agent-phase'
-import { EMPTY, log, readSwarm, updateSwarm } from './swarm-state'
+import { EMPTY, isWorkflowShown, log, readSwarm, updateSwarm } from './swarm-state'
 import { ticketName } from './ticket-source'
 import { isEveryTicketDone } from './ticket-done'
 import type { SourceEnv, TicketRef, TicketSource } from './ticket-source'
@@ -83,10 +83,11 @@ function isSameFeature(source: TicketSource, a: string, b: string): boolean {
 
 /**
  * Loads the feature at `origin` and logs what it found, or what turned resolved
- * since the last read. Says whether the workflow screen may be up: it may not
+ * since the last read. `workflow` tells whether the workflow screen can be up
+ * (a batch swap only counts then). Says whether the workflow screen may be up: it may not
  * when a source that tells its failures failed, since nothing was read.
  */
-export async function loadFeature($: EngineInterface, source: TicketSource, origin: string): Promise<boolean> {
+export async function loadFeature($: EngineInterface, source: TicketSource, origin: string, workflow: Workflow | undefined): Promise<boolean> {
   const before = (await readSwarm($)).feature
   let asked = origin
   for (;;) {
@@ -108,7 +109,8 @@ export async function loadFeature($: EngineInterface, source: TicketSource, orig
         return cur
       }
       // Another feature replaces the one on the screen: the cards that ended go with it, the running ones stay.
-      const isSwap = cur.feature !== undefined && !same
+      // One kept in the state while the screen is plain observing is not on it: loading a batch then is loading the first.
+      const isSwap = cur.feature !== undefined && !same && isWorkflowShown(cur, workflow)
       return {
         ...cur,
         agents: isSwap ? cur.agents.filter(isLive) : cur.agents,
@@ -159,7 +161,7 @@ export async function beginWorkflow($: EngineInterface, workflow: Workflow, skil
   await log($, 'lead', `/${skill} 開始，等待派票`)
   const origin = source.originOfArgs(args)
   // With no spec named the workflow waits for tickets; with one, it begins when that is read.
-  if (origin !== undefined && !(await loadFeature($, source, origin))) return false
+  if (origin !== undefined && !(await loadFeature($, source, origin, workflow))) return false
   await enterWorkflow($, false)
   return true
 }
@@ -174,13 +176,13 @@ export async function refreshFeature($: EngineInterface, workflow: Workflow | un
   const s = await readSwarm($)
   const target = s.feature ?? s.pending
   if (!target) return
-  const isLoaded = await loadFeature($, sourceById(target.sourceId, workflow), target.origin)
+  const isLoaded = await loadFeature($, sourceById(target.sourceId, workflow), target.origin, workflow)
   if (isLoaded && !s.feature) await enterWorkflow($, false)
 }
 
 /** Reads the tickets at `origin`; the workflow screen goes up unless the read failed. */
-export async function openFeature($: EngineInterface, source: TicketSource, origin: string, isManual: boolean) {
-  if (await loadFeature($, source, origin)) await enterWorkflow($, isManual)
+export async function openFeature($: EngineInterface, source: TicketSource, origin: string, workflow: Workflow | undefined, isManual: boolean) {
+  if (await loadFeature($, source, origin, workflow)) await enterWorkflow($, isManual)
 }
 
 /** The ticket a prompt points at, and the ticket source to load its feature from when that is not the one on the screen. */

@@ -291,15 +291,17 @@ async function endedAndRunningLocal($: any) {
   await spawn($, '實作 .scratch/f/issues/02-api.md', '第三張', 'ticket-implementer')
 }
 const lastStatus = (w: World) => w.statuses.at(-1) ?? ''
+const ENDED = /swarm \d+ 跑 · 1 完 · 1 敗/
+const NO_ENDED = /swarm \d+ 跑 · 0 完(?! · \d+ 敗)/
 
 test('local: a prompt pointing at another folder swaps the feature, drops the ended cards and keeps the log and the running card', WF, async ($, on) => {
   const world = newWorld(LOCAL)
   engine(on, world)
   await start($)
   await endedAndRunningLocal($)
-  expect(lastStatus(world)).toMatch(/swarm 1 跑 · 1 完 · 1 敗/)
+  expect(lastStatus(world)).toMatch(ENDED)
   await spawn($, '實作 .scratch/g/issues/02-api.md', '第四張', 'ticket-implementer')
-  expect(lastStatus(world)).toMatch(/swarm 2 跑 · 0 完(?! · \d+ 敗)/)
+  expect(lastStatus(world)).toMatch(NO_ENDED)
   const ui = await mount($)
   expect(await has(ui, /feature g/)).toBe(true)
   expect(await has(ui, /派出 ticket/)).toBe(true) // the log stays
@@ -316,7 +318,7 @@ test('local: /swarm <another folder> drops the ended cards and keeps the log', W
   await start($)
   await endedAndRunningLocal($)
   await $.command.run({ command: 'swarm', args: '.scratch/g/issues' } as never)
-  expect(lastStatus(world)).toMatch(/swarm 1 跑 · 0 完(?! · \d+ 敗)/)
+  expect(lastStatus(world)).toMatch(NO_ENDED)
   const ui = await mount($)
   expect(await has(ui, /feature g/)).toBe(true)
   expect(await has(ui, /派出 ticket/)).toBe(true)
@@ -342,10 +344,10 @@ test('local: a folder that cannot be read leaves the ended cards', WF, async ($,
   await endedAndRunningLocal($)
   world.listFails = true
   await $.command.run({ command: 'swarm', args: '.scratch/g/issues' } as never)
-  expect(lastStatus(world)).toMatch(/1 完 · 1 敗/)
+  expect(lastStatus(world)).toMatch(ENDED)
 })
 
-test('mattpocock-skills: a missing tracker file reads as local',WF, async ($, on) => {
+test('mattpocock-skills: a missing tracker file reads as local', WF, async ($, on) => {
   const world = newWorld(undefined)
   engine(on, world)
   await start($)
@@ -549,4 +551,20 @@ test('mattpocock-skills reloading the same state draws the feature box', WF, asy
   expect(await has(ui, /feature/)).toBe(true)
   expect(await has(ui, /02 登入 API/)).toBe(true)
   await ui.unmount()
+})
+
+test('none: /swarm <folder> with a batch kept in the state but not on the screen loads the first batch, the ended cards stay', NONE, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  const ended = { ...STORED_WORKFLOW.agents[0], id: 'agent-8', phase: 'done' }
+  // The state as a workflow session left it: the batch is in it and the mode is workflow, but the setting is none now.
+  let stored: unknown = { shape: 'swarm-5', value: { ...STORED_WORKFLOW, agents: [ended, ...STORED_WORKFLOW.agents] } }
+  on('state.get', () => ({ value: { value: stored, version: 1 } }))
+  on('state.set', (_: unknown, e: { value: unknown }) => {
+    stored = e.value
+    return { value: { isSet: true, version: 2 } }
+  })
+  await start($)
+  await $.command.run({ command: 'swarm', args: '.scratch/g/issues' } as never)
+  expect(lastStatus(world)).toMatch(/swarm 1 跑 · 1 完/)
 })
