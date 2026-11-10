@@ -1,5 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+const WF = { options: { workflow: 'mattpocock-skills' } }
+
 const PANE = {
   plugin: 'implement-swarm',
   component: 'Pane',
@@ -14,7 +16,7 @@ const PANE = {
   },
 } as const
 
-test('a spawned ticket-implementer shows as a card with its ticket', async ($, on) => {
+test('a spawned ticket-implementer shows as a card with its ticket', WF, async ($, on) => {
   mock.clock(on, { now: 1_700_000_000_000 })
   on('command.register', () => ({ value: { command: 'swarm' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -40,18 +42,18 @@ test('a spawned ticket-implementer shows as a card with its ticket', async ($, o
   }
 })
 
-test('before the implement phase the pane says so', async ($, on) => {
+test('with no subagent yet the pane says so', WF, async ($, on) => {
   mock.clock(on, { now: 1_700_000_000_000 })
   on('command.register', () => ({ value: { command: 'swarm' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /尚未進入 implement 階段/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /尚無子代理/ })).toBeDefined()
   await ui.unmount()
 })
 
-test("an Edit inside the agent's loop moves its card to 改碼", async ($, on) => {
+test("an Edit inside the agent's loop moves its card to 改碼", WF, async ($, on) => {
   mock.clock(on, { now: 1_700_000_000_000 })
   on('command.register', () => ({ value: { command: 'swarm' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -79,7 +81,7 @@ test("an Edit inside the agent's loop moves its card to 改碼", async ($, on) =
   await ui.unmount()
 })
 
-test('the pane opens at the surface width and draws no width controls', async ($, on) => {
+test('the pane opens at the surface width and draws no width controls', WF, async ($, on) => {
   mock.clock(on, { now: 1_700_000_000_000 })
   const opens: (number | undefined)[] = []
   on('command.register', () => ({ value: { command: 'swarm' } }))
@@ -98,7 +100,7 @@ test('the pane opens at the surface width and draws no width controls', async ($
   await ui.unmount()
 })
 
-test('the pane draws at the narrowest dock the engine seats', async ($, on) => {
+test('the pane draws at the narrowest dock the engine seats', WF, async ($, on) => {
   mock.clock(on, { now: 1_700_000_000_000 })
   on('command.register', () => ({ value: { command: 'swarm' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -113,7 +115,7 @@ test('the pane draws at the narrowest dock the engine seats', async ($, on) => {
   await ui.unmount()
 })
 
-test('cards carry the ticket title, failed ones first, done ones on one line', async ($, on) => {
+test('cards carry the ticket title, failed ones first, done ones on one line', WF, async ($, on) => {
   mock.clock(on, { now: 1_700_000_000_000 })
   const TICKETS: Record<string, string> = {
     '01-schema.md': '# 01: 新增資料表\n\n**Blocked by:** None\n\n**Status:** ready-for-agent\n\n- [ ] a\n',
@@ -128,7 +130,11 @@ test('cards carry the ticket title, failed ones first, done ones on one line', a
   on('tool.call', () => ({ result: {} }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('fs.list', () => ({ value: Object.keys(TICKETS).map(name => ({ name, kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false })) }))
-  on('fs.read', (_, e) => ({ value: TICKETS[e.path.split('/').pop() ?? ''] ?? '' }))
+  on('fs.read', (_, e) => {
+    // the project has no tracker file: its tickets are the local ones
+    if (e.path.endsWith('issue-tracker.md')) throw new Error('ENOENT')
+    return { value: TICKETS[e.path.split('/').pop() ?? ''] ?? '' }
+  })
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   for (const file of Object.keys(TICKETS)) {
@@ -152,7 +158,7 @@ test('cards carry the ticket title, failed ones first, done ones on one line', a
   await ui.unmount()
 })
 
-test('any agent type whose prompt points at a ticket opens a card, Windows path included', async ($, on) => {
+test('any agent type whose prompt points at a ticket opens a card, Windows path included', WF, async ($, on) => {
   mock.clock(on, { now: 1_700_000_000_000 })
   on('command.register', () => ({ value: { command: 'swarm' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))

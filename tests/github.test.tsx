@@ -1,0 +1,466 @@
+import { expect, mock, test } from 'claude-code/testing'
+
+// The pane with GitHub as the ticket source. `$.process.run` is answered by a
+// fake `gh`: no network and no real `gh`. The replies have the shape
+// `gh api repos/<owner>/<repo>/issues/<n>[/sub_issues|/dependencies/blocked_by]`
+// returns (read from this repo's own issues).
+
+const WF = { options: { workflow: 'mattpocock-skills' } }
+const TRACKER = 'docs/agents/issue-tracker.md'
+const GITHUB = '# Issue tracker: GitHub\n\nUse gh.\n'
+const LOCAL = '# Issue tracker: Local Markdown\n'
+
+const PANE = {
+  plugin: 'implement-swarm',
+  component: 'Pane',
+  requestId: 'implement-swarm',
+  props: {
+    title: 'Implement swarm',
+    isFocused: false,
+    bodyColumns: 80,
+    placement: 'dock',
+    scroll: { offset: 0, bodyRows: 80 },
+    view: {},
+  },
+} as const
+
+type Failure = { exitCode: number; stderr: string } | Error
+
+type World = {
+  tracker: string
+  opens: number
+  /** Every endpoint `gh` was asked for. */
+  gh: string[]
+  /** Set to make every `gh` call fail. */
+  failure?: Failure
+  /** Set to make the calls whose endpoint matches fail, the others answer. */
+  failOn?: RegExp
+  /** How many times the tracker file was read. */
+  trackerReads: number
+  statuses: (string | undefined)[]
+  sub: unknown[]
+  all: unknown[]
+  /** Closed ticket numbers. */
+  closed: Set<number>
+}
+
+const issue = (number: number, title: string, body = '', extra: object = {}) => ({ number, title, body, state: 'open', ...extra })
+
+function newWorld(): World {
+  return {
+    tracker: GITHUB,
+    trackerReads: 0,
+    opens: 0,
+    gh: [],
+    statuses: [],
+    closed: new Set([11]),
+    sub: [
+      issue(11, 'Schema', '- [x] a\n- [x] b'),
+      issue(12, 'API', '- [x] a\n- [ ] b'),
+      issue(13, 'Page', '## Blocked by\n\n- #11\n- #12\n\n- [ ] a'),
+    ],
+    all: [],
+  }
+}
+
+const PARENTS: Record<number, number> = { 11: 10, 12: 10, 13: 10 }
+
+function gh(world: World, argv: readonly string[]) {
+  if (world.failure) {
+    if (world.failure instanceof Error) return { deny: world.failure.message }
+    return { exitCode: world.failure.exitCode, stdout: '', stderr: world.failure.stderr, isStdoutTruncated: false, isStderrTruncated: false }
+  }
+  const endpoint = (argv.find(a => a.startsWith('repos/')) ?? '').replace('repos/{owner}/{repo}/', '')
+  world.gh.push(endpoint)
+  const ok = (data: unknown) => ({ exitCode: 0, stdout: JSON.stringify(argv.includes('--slurp') ? [data] : data), stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
+  if (world.failOn?.test(endpoint)) return { exitCode: 1, stdout: '', stderr: 'gh: HTTP 500 Server Error', isStdoutTruncated: false, isStderrTruncated: false }
+  const state = (i: { number: number }) => ({ ...i, state: world.closed.has(i.number) ? 'closed' : 'open' })
+  if (endpoint === 'issues/10') return ok(issue(10, 'Login feature'))
+  if (endpoint.startsWith('issues/10/sub_issues')) return ok(world.sub.map(i => state(i as { number: number })))
+  if (endpoint.startsWith('issues?')) return ok(world.all)
+  const blocked = endpoint.match(/^issues\/(\d+)\/dependencies\/blocked_by$/)
+  if (blocked) return ok(blocked[1] === '12' ? [{ number: 11 }] : [])
+  // the parent endpoint: the parent issue, or a 404 when there is none
+  const parentOf = endpoint.match(/^issues\/(\d+)\/parent$/)
+  if (parentOf) {
+    const parent = PARENTS[Number(parentOf[1])]
+    if (parent === undefined) return { exitCode: 1, stdout: '', stderr: 'gh: No parent issue found (HTTP 404)', isStdoutTruncated: false, isStderrTruncated: false }
+    return ok(issue(parent, 'Login feature'))
+  }
+  const one = endpoint.match(/^issues\/(\d+)$/)
+  if (one) return ok(issue(Number(one[1]), `Issue ${one[1]}`))
+  return { exitCode: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)', isStdoutTruncated: false, isStderrTruncated: false }
+}
+
+function engine(on: (event: string, hook: (...args: any[]) => unknown) => unknown, world: World) {
+  const clock = mock.clock(on as never, { now: 1_700_000_000_000 })
+  let n = 0
+  on('command.register', () => ({ value: { command: 'swarm' } }))
+  on('ui.open', () => {
+    world.opens += 1
+    return { value: { isPlaced: true } }
+  })
+  on('ui.status', (_: unknown, e: { text: string | undefined }) => {
+    world.statuses.push(e.text)
+    return { value: undefined }
+  })
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `agent-${++n}` }))
+  on('tool.call', () => ({ result: {} }))
+  on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
+  on('fs.read', (_: unknown, e: { path: string }) => {
+    if (e.path.endsWith(TRACKER)) {
+      world.trackerReads += 1
+      return { value: world.tracker }
+    }
+    throw new Error('ENOENT')
+  })
+  on('process.run', (_: unknown, e: { argv: string[] }) => (r => ('deny' in r ? r : { value: r }))(gh(world, e.argv)))
+  return clock
+}
+
+const start = ($: any) => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+const spawn = ($: any, prompt: string, description = 'work', subagentType = 'ticket-implementer') =>
+  $.agent.spawn({ prompt, description, subagentType } as never)
+const mount = ($: any) => $.ui.mount({ ...PANE, surface: 'terminal' })
+const has = async (ui: any, text: RegExp) => (await ui.find({ type: 'Text', text })) !== undefined
+const skill = ($: any, args: string) => $.tool.call({ tool: 'Skill', skill: 'mattpocock-skills:implement-spec', args } as never)
+const swarm = ($: any, args: string) => $.command.run({ command: 'swarm', args } as never)
+
+// ------------------------------------------------------------ loading
+
+test('github: /implement-spec with a spec issue number opens the pane with its sub-issues', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  expect(world.opens).toBe(1)
+  const ui = await mount($)
+  expect(await has(ui, /feature/)).toBe(true)
+  expect(await has(ui, /Login feature/)).toBe(true)
+  expect(await has(ui, /票來源 GitHub$/)).toBe(true)
+  // 11 is closed (resolved), 12 and 13 follow it in later steps
+  expect(await has(ui, /✓11/)).toBe(true)
+  expect(await has(ui, /12 API 1\/2/)).toBe(true)
+  await ui.unmount()
+})
+
+const SPEC_URL = 'https://github.com/Cyuhsuan/implement-swarm/issues/10'
+for (const [how, args] of [
+  ['skill', '10'],
+  ['skill', SPEC_URL],
+  ['swarm', '#10'],
+  ['swarm', SPEC_URL],
+] as const) {
+  test(`github: /${how === 'skill' ? 'implement-spec' : 'swarm'} ${args} loads the batch`, WF, async ($, on) => {
+    const world = newWorld()
+    engine(on, world)
+    await start($)
+    await (how === 'skill' ? skill($, args) : swarm($, args))
+    const ui = await mount($)
+    expect(await has(ui, /Login feature/)).toBe(true)
+    expect(await has(ui, /12 API/)).toBe(true)
+    await ui.unmount()
+  })
+}
+
+test('github: no sub-issues, so the issues that say Part of #N are the tickets', WF, async ($, on) => {
+  const world = newWorld()
+  world.sub = []
+  world.all = [issue(21, 'Alpha', 'Part of #10'), issue(22, 'Beta', '## Parent\n\n#10'), issue(23, 'Elsewhere', 'Part of #3')]
+  engine(on, world)
+  await start($)
+  await swarm($, '#10')
+  const ui = await mount($)
+  expect(await has(ui, /Alpha/)).toBe(true)
+  expect(await has(ui, /Beta/)).toBe(true)
+  expect(await has(ui, /Elsewhere/)).toBe(false)
+  await ui.unmount()
+})
+
+test('github: closed counts whole, an open ticket by its ticks (1 + 1/2 + 0 of 3 is 50%)', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  const ui = await mount($)
+  expect(await has(ui, /50%/)).toBe(true)
+  expect(await has(ui, /1\/3/)).toBe(true)
+  await ui.unmount()
+})
+
+test('github: opening the pane and starting a session do not call gh', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  const reply = await swarm($, '')
+  expect(world.gh).toEqual([])
+  expect(JSON.stringify(reply)).toContain('票來源 GitHub')
+  expect(JSON.stringify(reply)).not.toContain('（')
+  const ui = await mount($)
+  expect(await has(ui, /票來源 GitHub$/)).toBe(true)
+  await ui.unmount()
+})
+
+// ------------------------------------------------------------ prompts
+
+test('github: no feature yet, a prompt with a ticket URL loads the batch from its parent', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await spawn($, '實作 https://github.com/Cyuhsuan/implement-swarm/issues/12 ，整合分支 feat/x', '第 12 張')
+  expect(world.opens).toBe(1)
+  const ui = await mount($)
+  expect(await has(ui, /feature/)).toBe(true)
+  expect(await has(ui, /12 API/)).toBe(true)
+  await ui.unmount()
+})
+
+test('github: no feature yet, an issue with no parent loads nothing', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await spawn($, 'fix #99 please', '修 99')
+  expect(world.opens).toBe(0)
+  const ui = await mount($)
+  expect(await has(ui, /feature/)).toBe(false)
+  await ui.unmount()
+})
+
+test('github: no feature yet, a prompt with no issue in it does not call gh', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await spawn($, 'summarise the repo', '摘要', 'Explore')
+  expect(world.gh).toEqual([])
+})
+
+test('github: a loaded batch: a number of the batch is a ticket card, another number is an observing card', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await spawn($, '實作 #12', '第 12 張')
+  await spawn($, '看一下 PR #77 的結果', '看 PR')
+  const ui = await mount($)
+  expect(await has(ui, /第 12 張 · ticket-impl/)).toBe(false) // a workflow card shows number and title, not the description
+  expect(await has(ui, /看 PR · ticket-impl/)).toBe(true) // the observing card
+  expect(await has(ui, /77 /)).toBe(false)
+  await ui.unmount()
+})
+
+// ------------------------------------------------------------ merge
+
+test('github: the lead merging a branch with the ticket number marks the ticket, others do not', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await $.tool.call({ tool: 'Bash', command: 'git merge --no-ff feat-ticket-99' } as never)
+  let ui = await mount($)
+  expect(await has(ui, /◆/)).toBe(false)
+  await ui.unmount()
+
+  await $.tool.call({ tool: 'Bash', command: 'git merge --no-ff feat-ticket-12' } as never)
+  ui = await mount($)
+  expect(await has(ui, /◆12/)).toBe(true)
+  expect(await has(ui, /已 merge 1/)).toBe(true)
+  await ui.unmount()
+})
+
+// ------------------------------------------------------------ re-reading
+
+test('github: a subagent finishing reads the tickets again, and a closed issue becomes resolved', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await spawn($, '實作 #12', '第 12 張')
+  world.closed.add(12)
+  await $.turn.complete({ agentId: 'agent-1', reason: 'answer', isAborted: false, durationMs: 1000, answer: 'ok' } as never)
+  const ui = await mount($)
+  expect(await has(ui, /✓12/)).toBe(true)
+  await ui.unmount()
+})
+
+test('github: while a subagent runs the tickets are read every 30 seconds', WF, async ($, on) => {
+  const world = newWorld()
+  const clock = engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await spawn($, '實作 #12', '第 12 張')
+  const reads = () => world.gh.filter(e => e === 'issues/10').length
+  const base = reads()
+  await clock.advance(20_000)
+  expect(reads()).toBe(base)
+  await clock.advance(12_000)
+  expect(reads()).toBe(base + 1)
+})
+
+// ------------------------------------------------------------ failing
+
+const FAILURES: [string, Failure, RegExp][] = [
+  ['missing', new Error('spawn gh ENOENT'), /票來源 GitHub（`gh` 不存在）/],
+  ['logged out', { exitCode: 4, stderr: 'To get started with GitHub CLI, please run:  gh auth login' }, /票來源 GitHub（`gh` 未登入）/],
+  ['failing', { exitCode: 1, stderr: 'gh: HTTP 500 Server Error' }, /票來源 GitHub（`gh` 呼叫失敗/],
+]
+for (const [name, failure, line] of FAILURES) {
+  test(`github: gh ${name}: no feature box, one line says why, nothing throws`, WF, async ($, on) => {
+    const world = newWorld()
+    world.failure = failure
+    engine(on, world)
+    await start($)
+    await skill($, '#10')
+    await swarm($, '#10')
+    const ui = await mount($)
+    expect(await has(ui, /feature/)).toBe(false)
+    expect(await has(ui, line)).toBe(true)
+    expect(await has(ui, /session log/)).toBe(true)
+    // the screen is the observing one: the status line is all that is added
+    expect(await has(ui, /IMPLEMENT SWARM/)).toBe(false)
+    expect(await has(ui, /派票 → merge → review/)).toBe(false)
+    await ui.unmount()
+  })
+}
+
+test('github: a spawn whose batch fails to load is an observing card, not a ticket card', WF, async ($, on) => {
+  const world = newWorld()
+  world.failOn = /^issues\/10(\?|$|\/sub_issues)/
+  engine(on, world)
+  await start($)
+  await spawn($, '實作 #12', '第 12 張')
+  const ui = await mount($)
+  expect(await has(ui, /IMPLEMENT SWARM/)).toBe(false)
+  expect(await has(ui, /票來源 GitHub（`gh` 呼叫失敗/)).toBe(true)
+  await ui.unmount()
+})
+
+test('github: a bare /swarm never calls gh, whether tickets are loaded or a load failed', WF, async ($, on) => {
+  const world = newWorld()
+  world.failure = { exitCode: 1, stderr: 'gh: HTTP 500 Server Error' }
+  engine(on, world)
+  await start($)
+  await swarm($, '#10') // fails: remembered for the scheduled re-read
+  world.failure = undefined
+  await swarm($, '')
+  expect(world.gh).toEqual([])
+  await swarm($, '#10') // loads
+  world.gh.length = 0
+  await swarm($, '')
+  expect(world.gh).toEqual([])
+})
+
+for (const failOn of [/sub_issues/, /blocked_by/, /^issues\/10$/]) {
+  test(`github: ${failOn} failing in a re-read fails the whole re-read: the loaded tickets stay`, WF, async ($, on) => {
+    const world = newWorld()
+    world.sub = []
+    world.all = [issue(21, 'Alpha', 'Part of #10')]
+    engine(on, world)
+    await start($)
+    await skill($, '#10')
+    await spawn($, '實作 #21', '第 21 張')
+    world.failOn = failOn
+    world.sub = [issue(31, 'Intruder')]
+    await $.turn.complete({ agentId: 'agent-1', reason: 'answer', isAborted: false, durationMs: 1000, answer: 'ok' } as never)
+    const ui = await mount($)
+    expect(await has(ui, /Alpha/)).toBe(true)
+    expect(await has(ui, /Intruder/)).toBe(false)
+    expect(await has(ui, /票來源 GitHub（/)).toBe(true)
+    await ui.unmount()
+  })
+}
+
+test('github: a failed spawn lookup is not tried again at once, and says why', WF, async ($, on) => {
+  const world = newWorld()
+  world.failure = { exitCode: 4, stderr: 'run gh auth login' }
+  const clock = engine(on, world)
+  await start($)
+  await spawn($, '實作 #12', '第 12 張')
+  const ui = await mount($)
+  expect(await has(ui, /票來源 GitHub（`gh` 未登入）/)).toBe(true)
+  await ui.unmount()
+
+  // a second spawn within the pause does not ask again; after it, it does
+  world.failure = undefined
+  await spawn($, '實作 #12', '第 12 張')
+  expect(world.gh).toEqual([])
+  await clock.advance(11_000)
+  await spawn($, '實作 #12', '第 12 張')
+  expect(world.gh.length).toBeGreaterThan(0)
+})
+
+test('github: a failed re-read keeps the tickets read before, and the next one recovers', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await spawn($, '實作 #12', '第 12 張')
+
+  world.failure = { exitCode: 1, stderr: 'dial tcp: lookup api.github.com: no such host' }
+  await $.turn.complete({ agentId: 'agent-1', reason: 'answer', isAborted: false, durationMs: 1000, answer: 'ok' } as never)
+  let ui = await mount($)
+  expect(await has(ui, /feature/)).toBe(true)
+  expect(await has(ui, /12 API/)).toBe(true)
+  expect(await has(ui, /票來源 GitHub（`gh` 連不上 GitHub）/)).toBe(true)
+  await ui.unmount()
+
+  world.failure = undefined
+  world.closed.add(12)
+  await $.tool.call({ tool: 'Bash', command: 'git merge feat-ticket-12' } as never)
+  ui = await mount($)
+  expect(await has(ui, /票來源 GitHub$/)).toBe(true)
+  expect(await has(ui, /◆12/)).toBe(true)
+  await ui.unmount()
+})
+
+test('github: a load that failed is tried again by the scheduled re-read', WF, async ($, on) => {
+  const world = newWorld()
+  world.failure = { exitCode: 4, stderr: 'run gh auth login' }
+  const clock = engine(on, world)
+  await start($)
+  await swarm($, '#10')
+  await spawn($, 'summarise the repo', '摘要', 'Explore')
+  world.failure = undefined
+  await clock.advance(32_000)
+  const ui = await mount($)
+  expect(await has(ui, /feature/)).toBe(true)
+  expect(await has(ui, /票來源 GitHub$/)).toBe(true)
+  await ui.unmount()
+})
+
+// ------------------------------------------------------------ the other trackers
+
+test('an empty tracker file is not a local one: only observing, and the status line says why', WF, async ($, on) => {
+  const world = newWorld()
+  world.tracker = '\n'
+  engine(on, world)
+  await start($)
+  await spawn($, '實作 .scratch/f/issues/02-api.md', '第 2 張票')
+  const ui = await mount($)
+  expect(await has(ui, /票來源 無法辨識/)).toBe(true)
+  expect(await has(ui, /feature/)).toBe(false)
+  expect(await has(ui, /IMPLEMENT SWARM/)).toBe(false)
+  await ui.unmount()
+})
+
+test('local markdown tracker: a prompt with only #N does not read the tracker file again and again', WF, async ($, on) => {
+  const world = newWorld()
+  world.tracker = LOCAL
+  engine(on, world)
+  await start($)
+  await spawn($, '看 #12', '看')
+  await spawn($, '看 #13', '看')
+  await spawn($, '看 #14', '看')
+  expect(world.trackerReads).toBeLessThanOrEqual(1)
+  expect(world.gh).toEqual([])
+})
+
+test('local markdown tracker: nothing calls gh', WF, async ($, on) => {
+  const world = newWorld()
+  world.tracker = LOCAL
+  engine(on, world)
+  await start($)
+  await spawn($, '實作 #12 見 .scratch/f/issues/02-api.md', '第 2 張')
+  await swarm($, '')
+  expect(world.gh).toEqual([])
+})

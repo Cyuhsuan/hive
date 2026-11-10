@@ -2,6 +2,8 @@ import { expect, mock, test } from 'claude-code/testing'
 
 declare const console: { log: (...a: unknown[]) => void }
 
+const WF = { options: { workflow: 'mattpocock-skills' } }
+
 const PANE = {
   plugin: 'implement-swarm',
   component: 'Pane',
@@ -9,7 +11,7 @@ const PANE = {
   props: { title: 'Implement swarm', isFocused: false, bodyColumns: 84, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
-test('dump the pane with three agents in flight', async ($, on) => {
+test('dump the pane with three agents in flight', WF, async ($, on) => {
   const clock = mock.clock(on, { now: 1_762_420_000_000 })
   on('command.register', () => ({ value: { command: 'swarm' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -19,7 +21,11 @@ test('dump the pane with three agents in flight', async ($, on) => {
   on('tool.call', () => ({ result: {} }))
   const TICKETS: Record<string, string> = {"01-schema.md": "# 01: 新增 login 資料表\n\n**Blocked by:** None\n\n**Status:** resolved\n\n- [x] a\n- [x] b\n", "02-prefactor.md": "# 02: 抽出共用 AuthService\n\n**Blocked by:** None\n\n**Status:** resolved\n\n- [x] a\n", "03-login-api.md": "# 03: 登入 API\n\n**Blocked by:** 01, 02\n\n**Status:** ready-for-agent\n\n- [x] a\n- [ ] b\n- [ ] c\n", "04-report-page.md": "# 04: 報表頁面\n\n**Blocked by:** 01\n\n**Status:** ready-for-agent\n\n- [ ] a\n- [ ] b\n", "05-logout.md": "# 05: 登出與 session 失效\n\n**Blocked by:** 03\n\n**Status:** ready-for-agent\n\n- [ ] a\n", "06-e2e.md": "# 06: 端對端流程\n\n**Blocked by:** 04, 05\n\n**Status:** ready-for-agent\n\n- [ ] a\n"}
   on('fs.list', () => ({ value: Object.keys(TICKETS).map(name => ({ name, kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false })) }))
-  on('fs.read', (_, e) => ({ value: TICKETS[e.path.split('/').pop() ?? ''] ?? '' }))
+  on('fs.read', (_, e) => {
+    // the project has no tracker file: its tickets are the local ones
+    if (e.path.endsWith('issue-tracker.md')) throw new Error('ENOENT')
+    return { value: TICKETS[e.path.split('/').pop() ?? ''] ?? '' }
+  })
   on('turn.complete', (_, e) => ({ text: e.answer }))
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })

@@ -1,12 +1,22 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentPhase, Feature, Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
+import type { AgentPhase, Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
+import { markdownSource, ticketName, toPosix } from './ticket-source'
+import type { SourceEnv, TicketRef, TicketSource } from './ticket-source'
+import { sourceById, workflowOf } from './workflow'
+import type { SourceChoice, Workflow } from './workflow'
 
 const PANE = 'implement-swarm'
 const TITLE = 'Implement swarm'
 
-const EMPTY: Swarm = { isActive: false, agents: [], log: [] }
+const EMPTY: Swarm = { mode: 'observe', agents: [], log: [] }
+// Completed cards a pane that only observes lists; the rest fold into one line.
+const DONE_SHOWN = 5
+
+// How often the clock ticks while the pane is up; the tickets are re-read every
+// few ticks (a source's `refreshSeconds`).
+const TICK_MS = 2000
 
 // The dock's width is the person's: dragged at the pane's edge, never set from
 // here. The engine seats a dock at 24 body columns at least.
@@ -15,7 +25,7 @@ const WIDTH_MIN = 24
 // Bump the tag when Swarm's fields change: an earlier version's value
 // outlives a reload and is then read as EMPTY instead of crashing the pane.
 const swarm = atom({ plugin: 'implement-swarm', key: 'swarm' } as const, EMPTY, {
-  shape: 'swarm-2',
+  shape: 'swarm-5',
 })
 
 // ---------------------------------------------------------------- helpers
@@ -47,13 +57,6 @@ const PHASE_LABEL: Record<AgentPhase, string> = {
 const TEST_RE = /\b(dotnet test|npm (run )?test|pnpm (run )?test|yarn test|vitest|jest|pytest|go test|cargo test|mvn test|gradle test)\b/
 const MERGE_RE = /\bgit (merge|rebase|pull)\b/
 const COMMIT_RE = /\bgit commit\b/
-// `.scratch/<feature>/issues/03-login-api.md` → dir `.scratch/<feature>/issues`, ticket `03-login-api`
-const TICKET_PATH_RE = /((?:[^\s`'"()<>]*\/)?issues)\/(\d+)(-[^\s`'"()<>]*?)?\.md/
-const TICKET_FILE_RE = /^(\d+)(?:-(.*))?\.md$/
-
-/** Paths are matched with `/` only, so a Windows path is read the same way. */
-const toPosix = (text: string): string => text.replace(/\\/g, '/')
-
 function shortModel(model: string | undefined): string {
   if (!model) return '?'
   const m = model.match(/(fable|opus|sonnet|haiku)[-_ ]?(\d+(?:[-_.]\d+)?)?/i)
@@ -113,11 +116,6 @@ function isLive(agent: SwarmAgent): boolean {
   return agent.phase !== 'done' && agent.phase !== 'failed'
 }
 
-function ticketNumber(ticket: string | undefined): string | undefined {
-  const m = ticket?.match(/^(\d+)/)
-  return m ? m[1] : undefined
-}
-
 function phaseOfCall(agent: SwarmAgent, tool: string, args: Record<string, unknown>): AgentPhase {
   if (agent.phase === 'done' || agent.phase === 'failed') return agent.phase
   if (/review/i.test(agent.type)) return 'reviewing'
@@ -167,15 +165,15 @@ async function patchAgent(
   }))
 }
 
-function refreshStatus($: EngineInterface, s: Swarm) {
-  if (!s.isActive) {
+function refreshStatus($: EngineInterface, s: Swarm, hasTickets: boolean) {
+  if (s.mode === 'observe' && s.agents.length === 0) {
     $.ui.status(undefined)
     return
   }
   const live = s.agents.filter(isLive).length
   const done = s.agents.filter(a => a.phase === 'done').length
   const failed = s.agents.filter(a => a.phase === 'failed').length
-  const f = s.feature
+  const f = hasTickets ? s.feature : undefined
   const feat = f && f.tickets.length ? ` · 票 ${f.tickets.filter(t => t.status === 'resolved').length}/${f.tickets.length}` : ''
   $.ui.status(`swarm ${live} 跑 · ${done} 完${failed ? ` · ${failed} 敗` : ''}${feat}`)
 }
@@ -189,134 +187,164 @@ async function openPane($: EngineInterface) {
 
 // ---------------------------------------------------------------- tickets
 
-function parseTicket(name: string, text: string): Ticket | undefined {
-  const file = name.match(TICKET_FILE_RE)
-  if (!file) return undefined
-  const number = file[1]!
-  const slug = file[2] ?? ''
-  const title = text.match(/^#\s*\d+\s*[:：]\s*(.+?)\s*$/m)?.[1] ?? slug
-  const blockedLine = text.match(/\*\*Blocked by:?\*\*:?\s*(.*)/i)?.[1] ?? ''
-  const blockedBy = /none/i.test(blockedLine)
-    ? []
-    : Array.from(new Set((blockedLine.match(/\b\d{1,3}\b/g) ?? []).map(n => n.padStart(number.length, '0'))))
-  const status = (text.match(/\*\*Status:?\*\*:?\s*([^\s*]+)/i)?.[1] ?? 'unknown').toLowerCase()
-  const checks = (text.match(/^\s*- \[[ xX]\]/gm) ?? []).length
-  const checked = (text.match(/^\s*- \[[xX]\]/gm) ?? []).length
-
-  return { number, slug, title, blockedBy, status, checked, checks, step: 1 }
+/** The workflow screen is up: a timing fired, and the workflow (or `/swarm <folder>`) is still wanted. */
+function isWorkflowShown(s: Swarm, workflow: Workflow | undefined): boolean {
+  return s.mode === 'workflow' && (s.isManual === true || workflow !== undefined)
 }
 
-function assignSteps(tickets: Ticket[]): Ticket[] {
-  const byNumber = new Map(tickets.map(t => [t.number, t]))
-  const depth = new Map<string, number>()
-  const visit = (t: Ticket, seen: Set<string>): number => {
-    const known = depth.get(t.number)
-    if (known !== undefined) return known
-    if (seen.has(t.number)) return 1
-    seen.add(t.number)
-    let d = 1
-    for (const b of t.blockedBy) {
-      const blocker = byNumber.get(b)
-      if (blocker) d = Math.max(d, visit(blocker, seen) + 1)
-    }
-    depth.set(t.number, d)
-    return d
+function envOf($: EngineInterface): SourceEnv {
+  return {
+    fs: { list: p => $.fs.list(p), read: p => $.fs.read(p) },
+    now: () => $.clock.now(),
+    run: argv => $.process.run(argv),
   }
-  return tickets
-    .map(t => ({ ...t, step: visit(t, new Set()) }))
-    .sort((a, b) => a.step - b.step || a.number.localeCompare(b.number))
 }
 
-async function loadFeature($: EngineInterface, issuesDir: string): Promise<Feature | undefined> {
-  let entries
-  try {
-    entries = await $.fs.list(issuesDir)
-  } catch {
+// A spawn does not ask a failing source again within this long.
+const RETRY_AFTER_MS = 10_000
+
+/** The workflow's own line: which workflow, which ticket source, and why its tickets could not be read. */
+function workflowLine(workflow: Workflow, s: Swarm): string {
+  return `工作流 ${workflow.name} · 票來源 ${s.sourceLabel ?? '尚未判斷'}${s.loadFailure ? `（${s.loadFailure}）` : ''}`
+}
+
+/** Reads the project's tracker setting afresh and says which ticket source it names. */
+const chooseSource = ($: EngineInterface, workflow: Workflow): Promise<SourceChoice> => workflow.chooseSource({ read: p => $.fs.read(p) })
+
+/** Tells the person a source could not be read: the status line says why, and the log once. The tickets already loaded stay. */
+async function reportFailure($: EngineInterface, source: TicketSource, origin: string | undefined, reason: string) {
+  const at = await $.clock.now()
+  const before = (await read($, swarm)).loadFailure
+  await update($, swarm, s => ({
+    ...s,
+    loadFailure: reason,
+    pending: origin !== undefined && !s.feature ? { sourceId: source.id, origin } : s.pending,
+    failedAt: at,
+  }))
+  if (before !== reason) await log($, 'lead', `票來源讀取失敗：${reason}`)
+}
+
+/**
+ * No feature is loaded and the prompt may name a ticket whose spec has to be
+ * looked up (a GitHub issue's parent). Asks the ticket source, if it can.
+ */
+async function resolveUnloaded($: EngineInterface, workflow: Workflow, text: string, now: number, s: Swarm): Promise<TicketRef | undefined> {
+  if (s.failedAt !== undefined && now - s.failedAt < RETRY_AFTER_MS) return undefined
+  // A source known not to look anything up is not asked for again: the setting is read once.
+  if (s.sourceId !== undefined && !sourceById(s.sourceId, workflow).resolveRef) return undefined
+  const choice = await chooseSource($, workflow)
+  await update($, swarm, cur => ({ ...cur, sourceId: choice.source?.id ?? cur.sourceId, sourceLabel: choice.label }))
+  const source = choice.source
+  if (!source?.resolveRef) return undefined
+  const found = await source.resolveRef(envOf($), text)
+  if (!found.ok) {
+    await reportFailure($, source, undefined, found.reason)
     return undefined
   }
-  const files = entries.filter(e => e.kind === 'file' && TICKET_FILE_RE.test(e.name))
-  const tickets: Ticket[] = []
-  for (const file of files) {
-    try {
-      const text = await $.fs.read(`${issuesDir}/${file.name}`)
-      const ticket = parseTicket(file.name, text)
-      if (ticket) tickets.push(ticket)
-    } catch {
-      // a ticket that cannot be read is left out of the graph
-    }
-  }
-  const parts = issuesDir.replace(/\/+$/, '').split('/')
-  const name = parts[parts.length - 2] ?? parts[parts.length - 1] ?? issuesDir
-
-  return {
-    issuesDir,
-    name,
-    tickets: assignSteps(tickets),
-    merged: [],
-    loadedAt: await $.clock.now(),
-  }
+  return found.ref
 }
 
-async function refreshFeature($: EngineInterface, issuesDir?: string) {
-  const s = await read($, swarm)
-  const dir = issuesDir ?? s.feature?.issuesDir
-  if (!dir) return
-  const loaded = await loadFeature($, dir)
-  if (!loaded) return
-  const before = s.feature
+/** Reads the tracker setting afresh and records which ticket source it names. */
+async function pickSource($: EngineInterface, workflow: Workflow | undefined): Promise<SourceChoice | undefined> {
+  if (!workflow) return undefined
+  const choice = await chooseSource($, workflow)
+  const reason = choice.source ? undefined : choice.reason
+  const before = (await read($, swarm)).noTicketsReason
+  await update($, swarm, s => ({
+    ...s,
+    sourceLabel: choice.label,
+    sourceId: choice.source?.id,
+    // a failure belongs to the source that had it
+    loadFailure: s.sourceId === choice.source?.id ? s.loadFailure : undefined,
+    noTicketsReason: reason,
+  }))
+  if (reason && reason !== before) await log($, 'lead', reason)
+  return choice
+}
+
+/**
+ * Loads the feature at `origin` and logs what it found, or what turned resolved
+ * since the last read. Says whether the workflow screen may be up: it may not
+ * when a source that tells its failures failed, since nothing was read.
+ */
+async function loadFeature($: EngineInterface, source: TicketSource, origin: string): Promise<boolean> {
+  const before = (await read($, swarm)).feature
+  const result = await source.load(envOf($), origin)
+  if (!result.ok) {
+    if (!source.showsFailure) return true
+    await reportFailure($, source, origin, result.reason)
+    return false
+  }
+  const loaded = result.feature
   await update($, swarm, cur => ({
     ...cur,
-    feature: { ...loaded, merged: cur.feature?.issuesDir === dir ? cur.feature.merged : [] },
+    feature: { ...loaded, merged: cur.feature?.origin === origin ? cur.feature.merged : [] },
+    pending: undefined,
+    failedAt: undefined,
+    loadFailure: undefined,
   }))
-  // Log tickets that turned resolved since the last read.
-  if (before && before.issuesDir === dir) {
+  if (before && before.origin === origin) {
     for (const t of loaded.tickets) {
       const old = before.tickets.find(o => o.number === t.number)
       if (old && old.status !== 'resolved' && t.status === 'resolved') {
-        await log($, `${t.number}-${t.slug}`, `票面 Status → resolved（${t.checked}/${t.checks} 驗收）`)
+        await log($, ticketName(t), `票面 Status → resolved（${t.checked}/${t.checks} 驗收）`)
       }
     }
   } else {
     const steps = Math.max(0, ...loaded.tickets.map(t => t.step))
     await log($, 'lead', `讀到 ${loaded.name}：${loaded.tickets.length} 張票 · ${steps} 個時間步`)
   }
+  return true
 }
 
-/** Which ticket a prompt or a skill argument points at, and its issues folder. */
-function ticketRef(text: string): { issuesDir: string; ticket: string } | undefined {
-  const m = toPosix(text).match(TICKET_PATH_RE)
-  if (!m) return undefined
-  return { issuesDir: m[1]!, ticket: `${m[2]}${m[3] ?? ''}` }
+/** The workflow screen goes up; `isManual` when it is `/swarm <folder>` with no workflow. */
+async function enterWorkflow($: EngineInterface, isManual: boolean) {
+  await update($, swarm, (s): Swarm => ({ ...s, mode: 'workflow', isManual: isManual ? true : undefined }))
 }
 
-/** The issues folder a spec path implies: `.scratch/<feature>/spec.md` → `.scratch/<feature>/issues`. */
-function issuesDirOfArgs(raw: string): string | undefined {
-  const args = toPosix(raw)
-  const direct = args.match(/([^\s`'"()<>]*\/issues)(?:\/|\b)/)?.[1]
-  if (direct) return direct
-  const spec = args.match(/([^\s`'"()<>]+)\/(?:spec|design)\.md/)?.[1]
-  if (spec) return `${spec}/issues`
-  const scratch = args.match(/(\.scratch\/[^\s/`'"()<>]+)/)?.[1]
-  return scratch ? `${scratch}/issues` : undefined
+/** Reads again what is already loaded, or what a failed load was reading; a read that now succeeds brings the workflow screen up. */
+async function refreshFeature($: EngineInterface, workflow: Workflow | undefined) {
+  const s = await read($, swarm)
+  const target = s.feature ?? s.pending
+  if (!target) return
+  const isLoaded = await loadFeature($, sourceById(target.sourceId, workflow), target.origin)
+  if (isLoaded && !s.feature) await enterWorkflow($, false)
+}
+
+async function status($: EngineInterface, workflow: Workflow | undefined) {
+  const s = await read($, swarm)
+  refreshStatus($, s, isWorkflowShown(s, workflow))
+}
+
+/** Reads the tickets at `origin`; the workflow screen goes up unless the read failed. */
+async function openFeature($: EngineInterface, source: TicketSource, origin: string, isManual: boolean) {
+  if (await loadFeature($, source, origin)) await enterWorkflow($, isManual)
 }
 
 // ---------------------------------------------------------------- hooks
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  // The setting is read once per load: changing it reloads the module.
+  const workflow: Workflow | undefined = workflowOf(options['workflow'])
+  const isShown = (s: Swarm) => isWorkflowShown(s, workflow)
+
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'swarm',
-      description: '打開 implement-spec 進度面板（/swarm reset 清空；/swarm <issues 資料夾> 指定票）',
+      description: '打開子代理面板（/swarm reset 清空；/swarm <issues 資料夾>、/swarm #N、/swarm <issue 網址> 載入那批票）',
     })
     // Keep elapsed times moving while anything runs, and re-read the tickets
     // now and then so the feature bar follows what the implementers write.
     let ticks = 0
-    $.clock.every(2000, () => {
+    $.clock.every(TICK_MS, () => {
       ticks += 1
       void read($, swarm).then(async s => {
-        if (!s.isActive) return
         if (s.agents.some(isLive)) $.ui.invalidate('ui.render')
-        if (ticks % 5 === 0 && s.feature && s.agents.some(isLive)) await refreshFeature($)
+        const target = s.feature ?? s.pending
+        if (!target) return
+        const every = Math.round((sourceById(target.sourceId, workflow).refreshSeconds * 1000) / TICK_MS)
+        // A failed load has no workflow screen yet: it is tried again all the same.
+        if (ticks % every === 0 && (!s.feature || isShown(s)) && s.agents.some(isLive)) await refreshFeature($, workflow)
       })
     })
 
@@ -328,27 +356,48 @@ export const register: Register = on => {
     if (/^reset\b/.test(args)) {
       await update($, swarm, () => EMPTY)
       $.ui.status(undefined)
+      await pickSource($, workflow)
     } else if (args) {
-      const dir = issuesDirOfArgs(args) ?? args
-      await update($, swarm, s => ({ ...s, isActive: true }))
-      await refreshFeature($, dir)
+      if (workflow) {
+        const choice = await pickSource($, workflow)
+        if (choice?.source) {
+          const origin = choice.source.originOfCommand(args)
+          if (origin === undefined) await reportFailure($, choice.source, undefined, '要帶 spec issue 的編號或網址')
+          else await openFeature($, choice.source, origin, false)
+        }
+      } else {
+        // The one thing `none` still does: the folder the person names.
+        const folder = markdownSource.originOfCommand(args)
+        if (folder !== undefined) await openFeature($, markdownSource, folder, true)
+      }
     } else {
-      await refreshFeature($)
+      // Opening the pane reads the setting, not the tickets: those are read at a timing.
+      await pickSource($, workflow)
     }
+    await status($, workflow)
     await openPane($)
 
-    return { text: 'Implement swarm pane opened.' }
+    const s = await read($, swarm)
+    const line = workflow ? ` ${workflowLine(workflow, s)}` : ''
+    return { text: `Implement swarm pane opened.${line}` }
   })
 
-  // The implement phase begins: /implement-spec was invoked.
+  // The workflow begins: its start skill was invoked.
   on('tool.call', { tool: 'Skill' }, async ($, e, next) => {
-    if (e.agentId === undefined && /implement-spec$/.test(e.skill)) {
-      const at = await $.clock.now()
-      await update($, swarm, () => ({ ...EMPTY, isActive: true, startedAt: at }))
-      await log($, 'lead', `/${e.skill} 開始，等待派票`)
-      const dir = issuesDirOfArgs(e.args ?? '')
-      if (dir) await refreshFeature($, dir)
-      await openPane($)
+    if (e.agentId === undefined && workflow?.isStartSkill(e.skill)) {
+      const choice = await pickSource($, workflow)
+      if (choice?.source) {
+        const at = await $.clock.now()
+        const source = choice.source
+        await update($, swarm, s => ({ ...EMPTY, startedAt: at, sourceLabel: s.sourceLabel, sourceId: s.sourceId }))
+        await log($, 'lead', `/${e.skill} 開始，等待派票`)
+        const origin = source.originOfArgs(e.args ?? '')
+        // With no spec named the workflow waits for tickets; with one, it begins when that is read.
+        if (origin === undefined || (await loadFeature($, source, origin))) {
+          await enterWorkflow($, false)
+          await openPane($)
+        }
+      }
     }
 
     return next(e)
@@ -359,13 +408,40 @@ export const register: Register = on => {
     if (started.deny !== undefined || started.agentId === undefined) return started
 
     const at = await $.clock.now()
-    const ref = ticketRef(e.prompt)
+    // Which ticket the prompt points at: in the loaded feature's source, or in
+    // any of the workflow's while none is loaded.
+    const before = await read($, swarm)
+    const shown = isShown(before)
+    const sources = shown && before.feature ? [sourceById(before.feature.sourceId, workflow)] : (workflow?.sources ?? [])
+    let ref: TicketRef | undefined
+    for (const src of sources) ref ??= src.refOfText(e.prompt, before.feature)
+    if (!ref && !(shown && before.feature) && workflow?.sources.some(src => src.mayNameTicket?.(e.prompt))) ref = await resolveUnloaded($, workflow, e.prompt, at, before)
+
+    let ticket: string | undefined
+    let ticketNumber: string | undefined
+    let loadFrom: TicketSource | undefined
+    if (ref) {
+      if (shown && before.feature?.origin === ref.origin) {
+        ticket = ref.ticket
+        ticketNumber = ref.number
+      } else if (workflow) {
+        // A ticket pointed at: the ticket source setting is read afresh before any tickets are.
+        const choice = await pickSource($, workflow)
+        if (choice?.source) {
+          ticket = ref.ticket
+          ticketNumber = ref.number
+          loadFrom = choice.source
+        }
+      }
+    }
+
     const agent: SwarmAgent = {
       id: started.agentId,
       type: e.subagentType,
       description: e.description,
       model: started.model,
-      ticket: ref?.ticket,
+      ticket,
+      ticketNumber,
       isBackground: e.background,
       phase: 'spawned',
       tools: 0,
@@ -373,29 +449,18 @@ export const register: Register = on => {
       startedAt: at,
       parentId: e.parentAgentId,
     }
-    // No agent type is required: a prompt that points at a ticket file is enough.
-    const looksLikeImplement =
-      ref !== undefined || /implement|review|merg/i.test(`${e.subagentType} ${e.description}`)
-    let wasActive = true
-    await update($, swarm, s => {
-      wasActive = s.isActive
-      const isActive = s.isActive || looksLikeImplement
-      return {
-        ...s,
-        isActive,
-        startedAt: s.startedAt ?? at,
-        leadModel: e.parentAgentId === undefined ? e.parentModel : s.leadModel,
-        agents: isActive ? [...s.agents.filter(a => a.id !== agent.id), agent] : s.agents,
-      }
-    })
-    const now = await read($, swarm)
-    if (!now.isActive) return started
-    if (!wasActive) await openPane($)
+    await update($, swarm, s => ({
+      ...s,
+      startedAt: s.startedAt ?? at,
+      leadModel: e.parentAgentId === undefined ? e.parentModel : s.leadModel,
+      agents: [...s.agents.filter(a => a.id !== agent.id), agent],
+    }))
     await log($, whoOf(agent), `派出 ${shortType(agent.type)} · ${shortModel(agent.model)}${agent.isBackground ? ' · 背景' : ''}`)
-    if (ref && (!now.feature || now.feature.issuesDir !== ref.issuesDir)) {
-      await refreshFeature($, ref.issuesDir)
+    if (loadFrom && ref && (await loadFeature($, loadFrom, ref.origin))) {
+      await enterWorkflow($, false)
+      if (!shown) await openPane($)
     }
-    refreshStatus($, await read($, swarm))
+    await status($, workflow)
 
     return started
   }).catch((_$, e, next) => next(e))
@@ -412,18 +477,17 @@ export const register: Register = on => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     const s = await read($, swarm)
-    if (!s.isActive || !s.feature) return next(e)
-    const m = e.command.match(/\bgit merge\b[^\n]*?ticket-(\d+)/)
-    if (!m) return next(e)
+    if (!isShown(s) || !s.feature) return next(e)
+    const n = sourceById(s.feature.sourceId, workflow).mergedTicket(e.command, s.feature)
+    if (n === undefined) return next(e)
     const ran = await next(e)
     if (ran.deny === undefined && ran.isError !== true) {
-      const n = m[1]!
       await update($, swarm, cur => ({
         ...cur,
         feature: cur.feature && { ...cur.feature, merged: Array.from(new Set([...cur.feature.merged, n])) },
       }))
       await log($, 'lead', `票 ${n} merge 進整合分支`)
-      await refreshFeature($)
+      await refreshFeature($, workflow)
     }
 
     return ran
@@ -481,8 +545,8 @@ export const register: Register = on => {
       whoOf(agent),
       `${isFailed ? '失敗' : '完成'} · ${fmtDuration(e.durationMs)} · ${agent.tools} 次工具${e.reason === 'answer' ? '' : ` · ${e.reason}`}`,
     )
-    await refreshFeature($)
-    refreshStatus($, await read($, swarm))
+    if (isShown(await read($, swarm))) await refreshFeature($, workflow)
+    await status($, workflow)
 
     return next(e)
   })
@@ -508,12 +572,14 @@ export const register: Register = on => {
     const failed = s.agents.filter(a => a.phase === 'failed')
 
     // ---- feature: tickets by time-step
-    const feature = s.feature
+    // Under `none` a workflow screen left in the state is not drawn.
+    const isWorkflowView = isShown(s)
+    const feature = isWorkflowView ? s.feature : undefined
     const tickets = feature?.tickets ?? []
     const resolved = tickets.filter(t => t.status === 'resolved')
     const mergedSet = new Set(feature?.merged ?? [])
-    const liveTicketNumbers = new Set(live.map(a => ticketNumber(a.ticket)).filter(Boolean))
-    const failedTicketNumbers = new Set(failed.map(a => ticketNumber(a.ticket)).filter(Boolean))
+    const liveTicketNumbers = new Set(live.map(a => a.ticketNumber).filter(Boolean))
+    const failedTicketNumbers = new Set(failed.map(a => a.ticketNumber).filter(Boolean))
     const stepCount = Math.max(0, ...tickets.map(t => t.step))
     const ticketState = (t: Ticket): 'merged' | 'resolved' | 'running' | 'failed' | 'ready' | 'blocked' => {
       if (mergedSet.has(t.number)) return 'merged'
@@ -580,21 +646,33 @@ export const register: Register = on => {
     const cardW = Math.max(WIDTH_MIN - 2, Math.floor((W - 2 - (cols - 1)) / cols))
     const inner = cardW - 4
     const rank = (a: SwarmAgent) => (a.phase === 'failed' ? 0 : a.phase === 'done' ? 2 : 1)
-    const ordered = [...s.agents].sort((a, b) => rank(a) - rank(b) || a.startedAt - b.startedAt)
+    // Observing only, a finished run is as long as the session: the pane lists
+    // the latest few done cards and folds the rest into one line.
+    const recentDone = new Set(
+      [...done].sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0)).slice(0, DONE_SHOWN).map(a => a.id),
+    )
+    const hiddenDone = isWorkflowView ? 0 : done.length - recentDone.size
+    const ordered = s.agents
+      .filter(a => isWorkflowView || a.phase !== 'done' || recentDone.has(a.id))
+      .sort((a, b) => rank(a) - rank(b) || a.startedAt - b.startedAt)
 
     const card = (a: SwarmAgent) => {
+      // A card with a ticket is the workflow's; any other is the observing one.
+      const isTicketCard = isWorkflowView && a.ticket !== undefined
       const isRunning = isLive(a)
       const isFailed = a.phase === 'failed'
       const frame = isFailed ? 'error' : a.phase === 'done' ? 'success' : 'warning'
       const dot = isFailed ? '✗' : a.phase === 'done' ? '✓' : '●'
       const percent = PHASE_PERCENT[a.phase]
       const elapsed = fmtDuration((a.endedAt ?? now) - a.startedAt)
-      const number = ticketNumber(a.ticket)
+      const number = a.ticketNumber
       const t = tickets.find(x => x.number === number)
       // The ticket's number and title, as the step chart names it; with no
       // ticket read, what the spawn said.
-      const name = t ? `${t.number} ${t.title}` : (a.ticket ?? a.description)
-      const title = isNarrow ? `${number ?? clip(name, 8)} ${PHASE_LABEL[a.phase]}` : name
+      const name = isTicketCard
+        ? (t ? `${t.number} ${t.title}` : a.ticket!)
+        : `${a.description} · ${a.type}`
+      const title = isNarrow ? `${(isTicketCard && number) || clip(name, 8)} ${PHASE_LABEL[a.phase]}` : name
       const right = [
         a.errors ? `⚠ ${a.errors} err` : '',
         t && !isNarrow ? `step ${t.step}` : '',
@@ -618,14 +696,22 @@ export const register: Register = on => {
             </Text>
             <Text dimColor>{right}</Text>
           </Box>
-          {(isRunning || isFailed) && (
+          {!isTicketCard && (
+            <Text dimColor wrap="truncate-end">
+              {clip(
+                `${PHASE_LABEL[a.phase]} · ${a.tools} 次工具${isRunning && a.lastTool ? ` · ${a.lastTool}` : ''}`,
+                inner,
+              )}
+            </Text>
+          )}
+          {isTicketCard && (isRunning || isFailed) && (
             <Text wrap="truncate-end">
               <Text color={frame}>{bar(percent, barW)}</Text>
               <Text dimColor> {String(percent).padStart(3)}% </Text>
               {!isNarrow && <Text>{PHASE_LABEL[a.phase]}</Text>}
             </Text>
           )}
-          {(isRunning || isFailed) && (
+          {isTicketCard && (isRunning || isFailed) && (
             <Text dimColor wrap="truncate-end">
               {clip(a.lastTool ?? '…', inner)}
             </Text>
@@ -634,11 +720,13 @@ export const register: Register = on => {
       )
     }
 
-    const summary = s.isActive
+    const summary = s.mode === 'workflow' || s.agents.length > 0
       ? isNarrow
         ? `${live.length} 跑 · ${done.length} 完${failed.length ? ` · ${failed.length} 敗` : ''}`
         : `${live.length} 執行中 · ${done.length} 完成 · ${failed.length} 失敗${s.startedAt ? ` · ${fmtDuration(now - s.startedAt)}` : ''}`
-      : '尚未進入 implement 階段'
+      : '尚無子代理'
+    // The workflow's own line: which workflow, and which ticket source the project names.
+    const statusLine = workflow ? workflowLine(workflow, s) : undefined
 
     // The log draws what moved the work on: a phase change is on the card already.
     const logLines = s.log.filter(line => !line.text.startsWith('→ ')).slice(-5)
@@ -646,7 +734,7 @@ export const register: Register = on => {
     const featureTail = isNarrow
       ? ` ${String(featurePercent).padStart(3)}% ${resolved.length}/${tickets.length}`
       : ` ${String(featurePercent).padStart(3)}%  ${resolved.length}/${tickets.length} 票 · step ${Math.min(currentStep, stepCount)}/${stepCount}`
-    const leadTally = `已派 ${s.agents.length} · 已 merge ${mergedSet.size}`
+    const leadTally = isWorkflowView ? `已派 ${s.agents.length} · 已 merge ${mergedSet.size}` : `已派 ${s.agents.length}`
     // Narrow, a log line names its ticket by number alone.
     const whoW = isNarrow ? 4 : 14
     const who = (name: string) => {
@@ -657,11 +745,17 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" width={W}>
         <Box justifyContent="space-between">
-          <Text bold color="claude">{isNarrow ? 'SWARM' : 'IMPLEMENT SWARM'}</Text>
+          <Text bold color="claude">{isNarrow || !isWorkflowView ? 'SWARM' : 'IMPLEMENT SWARM'}</Text>
           <Text color={failed.length ? 'error' : undefined} dimColor={!failed.length}>
             {clip(summary, Math.max(6, W - (isNarrow ? 7 : 17)))}
           </Text>
         </Box>
+
+        {statusLine && (
+          <Text dimColor wrap="truncate-end">
+            {clip(statusLine, W)}
+          </Text>
+        )}
 
         {feature && (
           <Box flexDirection="column" borderStyle="round" borderColor={featureColor} paddingX={1}>
@@ -675,7 +769,7 @@ export const register: Register = on => {
                 <Text>{featureTail}</Text>
               </Text>
             )}
-            {tickets.length === 0 && <Text dimColor>{clip(`${feature.issuesDir} 裡沒有讀到票檔`, boxInner)}</Text>}
+            {tickets.length === 0 && <Text dimColor>{clip(sourceById(feature.sourceId, workflow).emptyText(feature.origin), boxInner)}</Text>}
             {Array.from({ length: stepCount }, (_, i) => stepRow(i + 1))}
           </Box>
         )}
@@ -686,7 +780,7 @@ export const register: Register = on => {
             <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, boxInner - 4)}</Text>
           </Text>
           <Box justifyContent="space-between">
-            {!isNarrow && <Text dimColor>派票 → merge → review</Text>}
+            {!isNarrow && isWorkflowView && <Text dimColor>派票 → merge → review</Text>}
             <Text>{clip(leadTally, boxInner)}</Text>
           </Box>
         </Box>
@@ -705,10 +799,16 @@ export const register: Register = on => {
           </Box>
         )}
 
+        {hiddenDone > 0 && (
+          <Box paddingLeft={2}>
+            <Text dimColor wrap="truncate-end">{clip(`另有 ${hiddenDone} 個已完成`, W - 2)}</Text>
+          </Box>
+        )}
+
         {s.agents.length > 0 && (
           <Box paddingLeft={2}>
             <Text dimColor wrap="truncate-end">
-              {clip(`└─▶ back to lead · merge + review${done.length === s.agents.length ? ' · 全部完成' : ''}`, W - 2)}
+              {clip(`└─▶ back to lead${isWorkflowView ? ' · merge + review' : ''}${done.length === s.agents.length ? ' · 全部完成' : ''}`, W - 2)}
             </Text>
           </Box>
         )}

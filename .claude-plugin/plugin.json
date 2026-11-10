@@ -1,10 +1,19 @@
 {
   "name": "implement-swarm",
-  "version": "0.1.2",
-  "description": "implement-spec 實作階段的 agent 拓撲面板：每個子代理的票、模型、階段、工具活動與結果，像指揮台一樣即時呈現。",
+  "version": "0.3.0",
+  "description": "子代理面板：預設只觀察子代理的動作與結果；選用 mattpocock-skills 工作流時，再畫出票、時間步與進度。",
   "types": "./types/index.d.ts",
   "license": "MIT",
   "author": {
     "name": "YuHsuan"
+  },
+  "userConfig": {
+    "workflow": {
+      "type": "string",
+      "title": "工作流",
+      "description": "none：只觀察子代理；mattpocock-skills：套用 mattpocock-skills 的票與時間步畫面",
+      "options": ["none", "mattpocock-skills"],
+      "default": "none"
+    }
   }
 }
