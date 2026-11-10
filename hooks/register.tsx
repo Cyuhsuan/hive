@@ -1,19 +1,15 @@
-import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
+import type { Swarm, SwarmAgent, Ticket } from '../types'
 import { spinnerAt, sweptBar } from './animation'
 import { PHASE_LABEL, PHASE_PERCENT, describeCall, isLive, phaseOfCall, whoOf } from './agent-phase'
+import { enterWorkflow, loadFeature, openFeature, pickSource, refreshFeature, reportFailure, ticketOfPrompt, workflowLine } from './feature-load'
+import { EMPTY, PANE, TITLE, isWorkflowShown, log, patchAgent, readSwarm, status, updateSwarm } from './swarm-state'
 import { bar, cells, clip, fmtClock, fmtDuration, shortModel, shortType } from './text-format'
-import { markdownSource, ticketName } from './ticket-source'
-import type { SourceEnv, TicketRef, TicketSource } from './ticket-source'
+import { markdownSource } from './ticket-source'
 import { sourceById, workflowOf } from './workflow'
-import type { SourceChoice, Workflow } from './workflow'
+import type { Workflow } from './workflow'
 
-const PANE = 'implement-swarm'
-const TITLE = 'Implement swarm'
-
-const EMPTY: Swarm = { mode: 'observe', agents: [], log: [] }
 // Completed cards a pane that only observes lists; the rest fold into one line.
 const DONE_SHOWN = 5
 
@@ -28,183 +24,11 @@ const REDRAW_MS = 60
 // here. The engine seats a dock at 24 body columns at least.
 const WIDTH_MIN = 24
 
-// Bump the tag when Swarm's fields change: an earlier version's value
-// outlives a reload and is then read as EMPTY instead of crashing the pane.
-const swarm = atom({ plugin: 'implement-swarm', key: 'swarm' } as const, EMPTY, {
-  shape: 'swarm-5',
-})
-
-async function log($: EngineInterface, who: string, text: string) {
-  const at = await $.clock.now()
-  const line: SwarmLogLine = { at, who, text }
-  await update($, swarm, s => ({ ...s, log: [...s.log, line].slice(-60) }))
-}
-
-async function patchAgent(
-  $: EngineInterface,
-  id: string,
-  fn: (agent: SwarmAgent) => SwarmAgent,
-) {
-  await update($, swarm, s => ({
-    ...s,
-    agents: s.agents.map(a => (a.id === id ? fn(a) : a)),
-  }))
-}
-
-function refreshStatus($: EngineInterface, s: Swarm, hasTickets: boolean) {
-  if (s.mode === 'observe' && s.agents.length === 0) {
-    $.ui.status(undefined)
-    return
-  }
-  const live = s.agents.filter(isLive).length
-  const done = s.agents.filter(a => a.phase === 'done').length
-  const failed = s.agents.filter(a => a.phase === 'failed').length
-  const f = hasTickets ? s.feature : undefined
-  const feat = f && f.tickets.length ? ` · 票 ${f.tickets.filter(t => t.status === 'resolved').length}/${f.tickets.length}` : ''
-  $.ui.status(`swarm ${live} 跑 · ${done} 完${failed ? ` · ${failed} 敗` : ''}${feat}`)
-}
-
 // ---------------------------------------------------------------- pane
 
 /** Opens the pane at the surface's own width; the person drags it from there. */
 async function openPane($: EngineInterface) {
   return $.ui.open({ id: PANE, title: TITLE })
-}
-
-// ---------------------------------------------------------------- tickets
-
-/** The workflow screen is up: a timing fired, and the workflow (or `/swarm <folder>`) is still wanted. */
-function isWorkflowShown(s: Swarm, workflow: Workflow | undefined): boolean {
-  return s.mode === 'workflow' && (s.isManual === true || workflow !== undefined)
-}
-
-function envOf($: EngineInterface): SourceEnv {
-  return {
-    fs: { list: p => $.fs.list(p), read: p => $.fs.read(p) },
-    now: () => $.clock.now(),
-    run: argv => $.process.run(argv),
-  }
-}
-
-// A spawn does not ask a failing source again within this long.
-const RETRY_AFTER_MS = 10_000
-
-/** The workflow's own line: which workflow, which ticket source, and why its tickets could not be read. */
-function workflowLine(workflow: Workflow, s: Swarm): string {
-  return `工作流 ${workflow.name} · 票來源 ${s.sourceLabel ?? '尚未判斷'}${s.loadFailure ? `（${s.loadFailure}）` : ''}`
-}
-
-/** Reads the project's tracker setting afresh and says which ticket source it names. */
-const chooseSource = ($: EngineInterface, workflow: Workflow): Promise<SourceChoice> => workflow.chooseSource({ read: p => $.fs.read(p) })
-
-/** Tells the person a source could not be read: the status line says why, and the log once. The tickets already loaded stay. */
-async function reportFailure($: EngineInterface, source: TicketSource, origin: string | undefined, reason: string) {
-  const at = await $.clock.now()
-  const before = (await read($, swarm)).loadFailure
-  await update($, swarm, s => ({
-    ...s,
-    loadFailure: reason,
-    pending: origin !== undefined && !s.feature ? { sourceId: source.id, origin } : s.pending,
-    failedAt: at,
-  }))
-  if (before !== reason) await log($, 'lead', `票來源讀取失敗：${reason}`)
-}
-
-/**
- * No feature is loaded and the prompt may name a ticket whose spec has to be
- * looked up (a GitHub issue's parent). Asks the ticket source, if it can.
- */
-async function resolveUnloaded($: EngineInterface, workflow: Workflow, text: string, now: number, s: Swarm): Promise<TicketRef | undefined> {
-  if (s.failedAt !== undefined && now - s.failedAt < RETRY_AFTER_MS) return undefined
-  // A source known not to look anything up is not asked for again: the setting is read once.
-  if (s.sourceId !== undefined && !sourceById(s.sourceId, workflow).resolveRef) return undefined
-  const choice = await chooseSource($, workflow)
-  await update($, swarm, cur => ({ ...cur, sourceId: choice.source?.id ?? cur.sourceId, sourceLabel: choice.label }))
-  const source = choice.source
-  if (!source?.resolveRef) return undefined
-  const found = await source.resolveRef(envOf($), text)
-  if (!found.ok) {
-    await reportFailure($, source, undefined, found.reason)
-    return undefined
-  }
-  return found.ref
-}
-
-/** Reads the tracker setting afresh and records which ticket source it names. */
-async function pickSource($: EngineInterface, workflow: Workflow | undefined): Promise<SourceChoice | undefined> {
-  if (!workflow) return undefined
-  const choice = await chooseSource($, workflow)
-  const reason = choice.source ? undefined : choice.reason
-  const before = (await read($, swarm)).noTicketsReason
-  await update($, swarm, s => ({
-    ...s,
-    sourceLabel: choice.label,
-    sourceId: choice.source?.id,
-    // a failure belongs to the source that had it
-    loadFailure: s.sourceId === choice.source?.id ? s.loadFailure : undefined,
-    noTicketsReason: reason,
-  }))
-  if (reason && reason !== before) await log($, 'lead', reason)
-  return choice
-}
-
-/**
- * Loads the feature at `origin` and logs what it found, or what turned resolved
- * since the last read. Says whether the workflow screen may be up: it may not
- * when a source that tells its failures failed, since nothing was read.
- */
-async function loadFeature($: EngineInterface, source: TicketSource, origin: string): Promise<boolean> {
-  const before = (await read($, swarm)).feature
-  const result = await source.load(envOf($), origin)
-  if (!result.ok) {
-    if (!source.showsFailure) return true
-    await reportFailure($, source, origin, result.reason)
-    return false
-  }
-  const loaded = result.feature
-  await update($, swarm, cur => ({
-    ...cur,
-    feature: { ...loaded, merged: cur.feature?.origin === origin ? cur.feature.merged : [] },
-    pending: undefined,
-    failedAt: undefined,
-    loadFailure: undefined,
-  }))
-  if (before && before.origin === origin) {
-    for (const t of loaded.tickets) {
-      const old = before.tickets.find(o => o.number === t.number)
-      if (old && old.status !== 'resolved' && t.status === 'resolved') {
-        await log($, ticketName(t), `票面 Status → resolved（${t.checked}/${t.checks} 驗收）`)
-      }
-    }
-  } else {
-    const steps = Math.max(0, ...loaded.tickets.map(t => t.step))
-    await log($, 'lead', `讀到 ${loaded.name}：${loaded.tickets.length} 張票 · ${steps} 個時間步`)
-  }
-  return true
-}
-
-/** The workflow screen goes up; `isManual` when it is `/swarm <folder>` with no workflow. */
-async function enterWorkflow($: EngineInterface, isManual: boolean) {
-  await update($, swarm, (s): Swarm => ({ ...s, mode: 'workflow', isManual: isManual ? true : undefined }))
-}
-
-/** Reads again what is already loaded, or what a failed load was reading; a read that now succeeds brings the workflow screen up. */
-async function refreshFeature($: EngineInterface, workflow: Workflow | undefined) {
-  const s = await read($, swarm)
-  const target = s.feature ?? s.pending
-  if (!target) return
-  const isLoaded = await loadFeature($, sourceById(target.sourceId, workflow), target.origin)
-  if (isLoaded && !s.feature) await enterWorkflow($, false)
-}
-
-async function status($: EngineInterface, workflow: Workflow | undefined) {
-  const s = await read($, swarm)
-  refreshStatus($, s, isWorkflowShown(s, workflow))
-}
-
-/** Reads the tickets at `origin`; the workflow screen goes up unless the read failed. */
-async function openFeature($: EngineInterface, source: TicketSource, origin: string, isManual: boolean) {
-  if (await loadFeature($, source, origin)) await enterWorkflow($, isManual)
 }
 
 // ---------------------------------------------------------------- hooks
@@ -226,7 +50,7 @@ export const register: Register = (on, options) => {
     let ticks = 0
     $.clock.every(TICK_MS, () => {
       ticks += 1
-      void read($, swarm).then(async s => {
+      void readSwarm($).then(async s => {
         if (s.agents.some(isLive)) $.ui.invalidate('ui.render')
         const target = s.feature ?? s.pending
         if (!target) return
@@ -239,7 +63,7 @@ export const register: Register = (on, options) => {
     // The frames: only while a subagent is live and the pane is the one shown.
     if (isAnimated) {
       $.clock.every(REDRAW_MS, () => {
-        void read($, swarm).then(async s => {
+        void readSwarm($).then(async s => {
           if (!s.agents.some(isLive)) return
           const panes = await $.ui.panes()
           if (panes.some(pane => pane.id === PANE && pane.isShown && pane.isPlaced)) $.ui.invalidate('ui.render')
@@ -253,7 +77,7 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'swarm' }, async ($, e) => {
     const args = (e.args ?? '').trim()
     if (/^reset\b/.test(args)) {
-      await update($, swarm, () => EMPTY)
+      await updateSwarm($, () => EMPTY)
       $.ui.status(undefined)
       await pickSource($, workflow)
     } else if (args) {
@@ -276,7 +100,7 @@ export const register: Register = (on, options) => {
     await status($, workflow)
     await openPane($)
 
-    const s = await read($, swarm)
+    const s = await readSwarm($)
     const line = workflow ? ` ${workflowLine(workflow, s)}` : ''
     return { text: `Implement swarm pane opened.${line}` }
   })
@@ -288,7 +112,7 @@ export const register: Register = (on, options) => {
       if (choice?.source) {
         const at = await $.clock.now()
         const source = choice.source
-        await update($, swarm, s => ({ ...EMPTY, startedAt: at, sourceLabel: s.sourceLabel, sourceId: s.sourceId }))
+        await updateSwarm($, s => ({ ...EMPTY, startedAt: at, sourceLabel: s.sourceLabel, sourceId: s.sourceId }))
         await log($, 'lead', `/${e.skill} 開始，等待派票`)
         const origin = source.originOfArgs(e.args ?? '')
         // With no spec named the workflow waits for tickets; with one, it begins when that is read.
@@ -307,32 +131,9 @@ export const register: Register = (on, options) => {
     if (started.deny !== undefined || started.agentId === undefined) return started
 
     const at = await $.clock.now()
-    // Which ticket the prompt points at: in the loaded feature's source, or in
-    // any of the workflow's while none is loaded.
-    const before = await read($, swarm)
+    const before = await readSwarm($)
     const shown = isShown(before)
-    const sources = shown && before.feature ? [sourceById(before.feature.sourceId, workflow)] : (workflow?.sources ?? [])
-    let ref: TicketRef | undefined
-    for (const src of sources) ref ??= src.refOfText(e.prompt, before.feature)
-    if (!ref && !(shown && before.feature) && workflow?.sources.some(src => src.mayNameTicket?.(e.prompt))) ref = await resolveUnloaded($, workflow, e.prompt, at, before)
-
-    let ticket: string | undefined
-    let ticketNumber: string | undefined
-    let loadFrom: TicketSource | undefined
-    if (ref) {
-      if (shown && before.feature?.origin === ref.origin) {
-        ticket = ref.ticket
-        ticketNumber = ref.number
-      } else if (workflow) {
-        // A ticket pointed at: the ticket source setting is read afresh before any tickets are.
-        const choice = await pickSource($, workflow)
-        if (choice?.source) {
-          ticket = ref.ticket
-          ticketNumber = ref.number
-          loadFrom = choice.source
-        }
-      }
-    }
+    const { ticket, ticketNumber, loadFrom, origin } = await ticketOfPrompt($, e.prompt, before, workflow, at)
 
     const agent: SwarmAgent = {
       id: started.agentId,
@@ -348,14 +149,14 @@ export const register: Register = (on, options) => {
       startedAt: at,
       parentId: e.parentAgentId,
     }
-    await update($, swarm, s => ({
+    await updateSwarm($, s => ({
       ...s,
       startedAt: s.startedAt ?? at,
       leadModel: e.parentAgentId === undefined ? e.parentModel : s.leadModel,
       agents: [...s.agents.filter(a => a.id !== agent.id), agent],
     }))
     await log($, whoOf(agent), `派出 ${shortType(agent.type)} · ${shortModel(agent.model)}${agent.isBackground ? ' · 背景' : ''}`)
-    if (loadFrom && ref && (await loadFeature($, loadFrom, ref.origin))) {
+    if (loadFrom && origin !== undefined && (await loadFeature($, loadFrom, origin))) {
       await enterWorkflow($, false)
       if (!shown) await openPane($)
     }
@@ -375,13 +176,13 @@ export const register: Register = (on, options) => {
   // The lead merging a ticket branch into the integration branch.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
-    const s = await read($, swarm)
+    const s = await readSwarm($)
     if (!isShown(s) || !s.feature) return next(e)
     const n = sourceById(s.feature.sourceId, workflow).mergedTicket(e.command, s.feature)
     if (n === undefined) return next(e)
     const ran = await next(e)
     if (ran.deny === undefined && ran.isError !== true) {
-      await update($, swarm, cur => ({
+      await updateSwarm($, cur => ({
         ...cur,
         feature: cur.feature && { ...cur.feature, merged: Array.from(new Set([...cur.feature.merged, n])) },
       }))
@@ -395,7 +196,7 @@ export const register: Register = (on, options) => {
   // Every tool call inside a subagent's loop is one step of its progress.
   on('tool.call', async ($, e, next) => {
     if (e.agentId === undefined) return next(e)
-    const s = await read($, swarm)
+    const s = await readSwarm($)
     const agent = s.agents.find(a => a.id === e.agentId)
     if (!agent || !isLive(agent)) return next(e)
 
@@ -423,7 +224,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) return next(e)
-    const s = await read($, swarm)
+    const s = await readSwarm($)
     const agent = s.agents.find(a => a.id === e.agentId)
     if (!agent) return next(e)
 
@@ -444,7 +245,7 @@ export const register: Register = (on, options) => {
       whoOf(agent),
       `${isFailed ? '失敗' : '完成'} · ${fmtDuration(e.durationMs)} · ${agent.tools} 次工具${e.reason === 'answer' ? '' : ` · ${e.reason}`}`,
     )
-    if (isShown(await read($, swarm))) await refreshFeature($, workflow)
+    if (isShown(await readSwarm($))) await refreshFeature($, workflow)
     await status($, workflow)
 
     return next(e)
@@ -458,7 +259,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
-    const s = await read($, swarm)
+    const s = await readSwarm($)
     const now = await $.clock.now()
     // Every row below is sized from W, so the pane follows whatever width the
     // person drags the dock to, down to the engine's own floor.
