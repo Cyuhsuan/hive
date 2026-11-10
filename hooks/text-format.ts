@@ -28,8 +28,8 @@ export function fmtClock(at: number): string {
     .join(':')
 }
 
-// CJK and full-width characters take two cells; everything else one.
-const WIDE_RE = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/
+// CJK, full-width characters and emoji take two cells; everything else one.
+const WIDE_RE = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦\u{1F300}-\u{1FAFF}]/u
 
 export function cells(text: string): number {
   let n = 0

@@ -3,6 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Swarm, SwarmAgent } from '../types'
 import { PHASE_LABEL, describeCall, isLive, phaseOfCall, whoOf } from './agent-phase'
 import { beginWorkflow, enterWorkflow, loadFeature, openFeature, pickSource, refreshFeature, reportFailure, ticketOfPrompt } from './feature-load'
+import { isReturning } from './animation'
 import { paneModelOf, workflowLine } from './pane-model'
 import { drawPane } from './pane-view'
 import { EMPTY, PANE, TITLE, isWorkflowShown, log, patchAgent, readSwarm, status, updateSwarm } from './swarm-state'
@@ -59,11 +60,12 @@ export const register: Register = (on, options) => {
       })
     })
 
-    // The frames: only while a subagent is live and the pane is the one shown.
+    // The frames: only while a subagent is live or a bee is still returning, and the pane is the one shown.
     if (isAnimated) {
       $.clock.every(REDRAW_MS, () => {
         void readSwarm($).then(async s => {
-          if (!s.agents.some(isLive)) return
+          const now = await $.clock.now()
+          if (!s.agents.some(a => isLive(a) || isReturning(a, now))) return
           const panes = await $.ui.panes()
           if (panes.some(pane => pane.id === PANE && pane.isShown && pane.isPlaced)) $.ui.invalidate('ui.render')
         }).catch(() => undefined)
