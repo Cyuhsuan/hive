@@ -636,3 +636,29 @@ test('the same mounted pane ends on the bee gone and the count one more, however
   expect(flyingOf(last)).toHaveLength(0)
   expect(tallyOf(last)).toBe('已派 1 · 🐝 1')
 })
+
+// ------------------------------------------------------------ the rows the route counts
+
+test('the rows a bee flies over are the rows the pane draws: the lead frame, its tally line, the delegates line, then the cards', ON, async ($, on) => {
+  engine(on)
+  await start($)
+  await spawn($)
+
+  const tree = await drawn($)
+  const drawnChildren = (n: Node) => (n.children ?? []).filter((c): c is Node => c !== null && typeof c === 'object')
+  const isLead = (n: Node) => n.props?.borderStyle !== undefined && text(n).includes('已派')
+  // the hive: the Box holding the lead's frame, counted from the top as the bee's rows are
+  const hive = find(tree, n => drawnChildren(n).some(isLead))[0]!
+  const rows = drawnChildren(hive)
+  const lead = rows[0]!
+  expect(isLead(lead)).toBe(true)
+
+  // the tally is under the frame's top border and the lines before it
+  const leadLines = drawnChildren(lead)
+  expect(1 + leadLines.findIndex(line => text(line).includes('已派'))).toBe(LEAD_TALLY_ROW)
+  // the cards start under the lead's frame (its lines and two borders) and every one-row line between
+  const cardsAt = rows.findIndex(row => find(row, n => n.props?.key === 'agent-1').length > 0)
+  const between = rows.slice(1, cardsAt)
+  expect(between.every(row => row.props?.borderStyle === undefined && drawnChildren(row).length === 1)).toBe(true)
+  expect(leadLines.length + 2 + between.length).toBe(CARDS_TOP)
+})
