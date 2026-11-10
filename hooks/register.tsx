@@ -18,6 +18,23 @@ const DONE_SHOWN = 5
 // few ticks (a source's `refreshSeconds`).
 const TICK_MS = 2000
 
+// Animation says a subagent is at work, and nothing else: with none live the
+// pane is still. A frame is read off the clock, so nothing about it is kept.
+const FRAME_MS = 120
+const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+// The pane is redrawn twice per spinner frame, so the feature bar's light glides.
+const REDRAW_MS = 60
+// One pass of the feature bar's light over its filled cells, however many.
+const SWEEP_MS = 2000
+// The light is a soft band: full at its middle, fading to the bar's own color
+// this many cells either side. Where it sits between two cells, both glow in part.
+const GLOW_REACH = 3
+// The bar's color as the default themes paint `claude`, and the light at its
+// brightest; a cell is tinted somewhere between the two.
+const GLOW_FROM = [215, 119, 87] as const
+const GLOW_TO = [255, 226, 208] as const
+const GLOW_SHADES = 8
+
 // The dock's width is the person's: dragged at the pane's edge, never set from
 // here. The engine seats a dock at 24 body columns at least.
 const WIDTH_MIN = 24
@@ -110,6 +127,41 @@ function clip(text: string, width: number): string {
 function bar(percent: number, width: number): string {
   const filled = Math.round((Math.min(100, Math.max(0, percent)) / 100) * width)
   return '█'.repeat(filled) + '░'.repeat(Math.max(0, width - filled))
+}
+
+/** The spinner's glyph at `now`: every card and ticket at work draws the same one. */
+function spinnerAt(now: number): string {
+  return SPINNER[Math.floor(now / FRAME_MS) % SPINNER.length]!
+}
+
+/** A stretch of bar cells drawn alike; `glow` is the tint of lit cells, absent for the bar's own color. */
+type BarRun = { text: string; glow?: string }
+
+/**
+ * A bar whose filled cells a band of light crosses left to right, once every
+ * SWEEP_MS: it rises at the left end, glides at a steady pace and fades out
+ * past the filled cells' last one, never lighting an empty cell.
+ */
+function sweptBar(percent: number, width: number, now: number): BarRun[] {
+  const filled = Math.round((Math.min(100, Math.max(0, percent)) / 100) * width)
+  // The band's middle, in cells: from wholly before the first cell to wholly after the last.
+  const middle = ((now % SWEEP_MS) / SWEEP_MS) * (filled + 2 * GLOW_REACH) - GLOW_REACH
+  const runs: BarRun[] = []
+  for (let i = 0; i < filled; i++) {
+    const near = Math.max(0, 1 - Math.abs(i + 0.5 - middle) / GLOW_REACH)
+    // Eased, so the band has a soft shoulder instead of a tent's point.
+    const shade = Math.round(near * near * (3 - 2 * near) * GLOW_SHADES)
+    const glow = shade === 0 ? undefined : tint(shade / GLOW_SHADES)
+    const last = runs[runs.length - 1]
+    if (last && last.glow === glow) last.text += '█'
+    else runs.push({ text: '█', glow })
+  }
+  if (width > filled) runs.push({ text: '░'.repeat(width - filled) })
+  return runs
+}
+
+function tint(amount: number): string {
+  return '#' + GLOW_FROM.map((from, i) => Math.round(from + (GLOW_TO[i]! - from) * amount).toString(16).padStart(2, '0')).join('')
 }
 
 function isLive(agent: SwarmAgent): boolean {
@@ -327,6 +379,8 @@ export const register: Register = (on, options) => {
   // The setting is read once per load: changing it reloads the module.
   const workflow: Workflow | undefined = workflowOf(options['workflow'])
   const isShown = (s: Swarm) => isWorkflowShown(s, workflow)
+  // `off` is the pane as it was before it moved: the same glyphs, drawn at the clock's own pace.
+  const isAnimated = options['animation'] !== 'off'
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -347,6 +401,17 @@ export const register: Register = (on, options) => {
         if (ticks % every === 0 && (!s.feature || isShown(s)) && s.agents.some(isLive)) await refreshFeature($, workflow)
       })
     })
+
+    // The frames: only while a subagent is live and the pane is the one shown.
+    if (isAnimated) {
+      $.clock.every(REDRAW_MS, () => {
+        void read($, swarm).then(async s => {
+          if (!s.agents.some(isLive)) return
+          const panes = await $.ui.panes()
+          if (panes.some(pane => pane.id === PANE && pane.isShown && pane.isPlaced)) $.ui.invalidate('ui.render')
+        }).catch(() => undefined)
+      })
+    }
 
     return next(e)
   })
@@ -598,7 +663,9 @@ export const register: Register = (on, options) => {
     const openChecked = tickets.filter(t => t.status !== 'resolved').reduce((n, t) => n + (t.checks ? t.checked / t.checks : 0), 0)
     const featurePercent = tickets.length ? Math.round(((resolved.length + openChecked) / tickets.length) * 100) : 0
 
-    const stateGlyph = { merged: '◆', resolved: '✓', running: '●', failed: '✗', ready: '○', blocked: '·' } as const
+    // A ticket is `running` only with a live subagent behind it, so its glyph turns with that card's.
+    const liveGlyph = isAnimated ? spinnerAt(now) : '●'
+    const stateGlyph = { merged: '◆', resolved: '✓', running: liveGlyph, failed: '✗', ready: '○', blocked: '·' } as const
     const stateColor = { merged: 'success', resolved: 'success', running: 'warning', failed: 'error', ready: 'text', blocked: 'subtle' } as const
 
     // One row per step. The step being worked spells its tickets out (title,
@@ -662,7 +729,7 @@ export const register: Register = (on, options) => {
       const isRunning = isLive(a)
       const isFailed = a.phase === 'failed'
       const frame = isFailed ? 'error' : a.phase === 'done' ? 'success' : 'warning'
-      const dot = isFailed ? '✗' : a.phase === 'done' ? '✓' : '●'
+      const dot = isFailed ? '✗' : a.phase === 'done' ? '✓' : liveGlyph
       const percent = PHASE_PERCENT[a.phase]
       const elapsed = fmtDuration((a.endedAt ?? now) - a.startedAt)
       const number = a.ticketNumber
@@ -734,6 +801,8 @@ export const register: Register = (on, options) => {
     const featureTail = isNarrow
       ? ` ${String(featurePercent).padStart(3)}% ${resolved.length}/${tickets.length}`
       : ` ${String(featurePercent).padStart(3)}%  ${resolved.length}/${tickets.length} 票 · step ${Math.min(currentStep, stepCount)}/${stepCount}`
+    const featureBarW = Math.max(6, boxInner - cells(featureTail))
+    const isSweeping = isAnimated && live.length > 0 && featurePercent > 0 && featurePercent < 100
     const leadTally = isWorkflowView ? `已派 ${s.agents.length} · 已 merge ${mergedSet.size}` : `已派 ${s.agents.length}`
     // Narrow, a log line names its ticket by number alone.
     const whoW = isNarrow ? 4 : 14
@@ -765,7 +834,9 @@ export const register: Register = (on, options) => {
             </Text>
             {tickets.length > 0 && (
               <Text wrap="truncate-end">
-                <Text color={featureColor}>{bar(featurePercent, Math.max(6, boxInner - cells(featureTail)))}</Text>
+                {isSweeping
+                  ? sweptBar(featurePercent, featureBarW, now).map(run => <Text color={run.glow ?? featureColor}>{run.text}</Text>)
+                  : <Text color={featureColor}>{bar(featurePercent, featureBarW)}</Text>}
                 <Text>{featureTail}</Text>
               </Text>
             )}
