@@ -76,6 +76,11 @@ export async function pickSource($: EngineInterface, workflow: Workflow | undefi
   return choice
 }
 
+/** Whether two origins are one feature: the same, or both the standalone tickets of one piece of work (which grow as tickets are added). */
+function isSameFeature(source: TicketSource, a: string, b: string): boolean {
+  return a === b || (source.isStandalone?.(a) === true && source.isStandalone(b))
+}
+
 /**
  * Loads the feature at `origin` and logs what it found, or what turned resolved
  * since the last read. Says whether the workflow screen may be up: it may not
@@ -83,32 +88,51 @@ export async function pickSource($: EngineInterface, workflow: Workflow | undefi
  */
 export async function loadFeature($: EngineInterface, source: TicketSource, origin: string): Promise<boolean> {
   const before = (await readSwarm($)).feature
-  const result = await source.load(envOf($), origin)
-  if (!result.ok) {
-    if (!source.showsFailure) return true
-    await reportFailure($, source, origin, result.reason)
-    return false
-  }
-  const loaded = result.feature
-  await updateSwarm($, cur => ({
-    ...cur,
-    feature: { ...loaded, merged: cur.feature?.origin === origin ? cur.feature.merged : [] },
-    pending: undefined,
-    failedAt: undefined,
-    loadFailure: undefined,
-  }))
-  if (before && before.origin === origin) {
-    for (const t of loaded.tickets) {
-      const old = before.tickets.find(o => o.number === t.number)
-      if (old && old.status !== 'resolved' && t.status === 'resolved') {
-        await log($, ticketName(t), `票面 Status → resolved（${t.checked}/${t.checks} 驗收）`)
-      }
+  let asked = origin
+  for (;;) {
+    const result = await source.load(envOf($), asked)
+    if (!result.ok) {
+      if (!source.showsFailure) return true
+      await reportFailure($, source, origin, result.reason)
+      return false
     }
-  } else {
-    const steps = Math.max(0, ...loaded.tickets.map(t => t.step))
-    await log($, 'lead', `讀到 ${loaded.name}：${loaded.tickets.length} 張票 · ${steps} 個時間步`)
+    const loaded = result.feature
+    // The state is looked at as it is when written: another read or spawn may have added standalone tickets since this one began.
+    // The feature written then has all of them; if this read lacks some, they are read too.
+    let wanted: string | undefined
+    await updateSwarm($, cur => {
+      const same = cur.feature && isSameFeature(source, cur.feature.origin, loaded.origin) ? cur.feature : undefined
+      const joined = same ? (source.joinStandalone?.(same.origin, loaded.origin) ?? loaded.origin) : loaded.origin
+      if (joined !== loaded.origin) {
+        wanted = joined
+        return cur
+      }
+      return {
+        ...cur,
+        // The origin asked for may name tickets only (a skill's arguments): the feature says which feature they are.
+        feature: { ...loaded, merged: same ? same.merged : [] },
+        pending: undefined,
+        failedAt: undefined,
+        loadFailure: undefined,
+      }
+    })
+    if (wanted !== undefined) {
+      asked = wanted
+      continue
+    }
+    if (before && isSameFeature(source, before.origin, loaded.origin)) {
+      for (const t of loaded.tickets) {
+        const old = before.tickets.find(o => o.number === t.number)
+        if (old && old.status !== 'resolved' && t.status === 'resolved') {
+          await log($, ticketName(t), `票面 Status → resolved（${t.checked}/${t.checks} 驗收）`)
+        }
+      }
+    } else {
+      const steps = Math.max(0, ...loaded.tickets.map(t => t.step))
+      await log($, 'lead', `讀到 ${loaded.name}：${loaded.tickets.length} 張票 · ${steps} 個時間步`)
+    }
+    return true
   }
-  return true
 }
 
 /**
@@ -172,21 +196,28 @@ type PromptTicket = {
  */
 export async function ticketOfPrompt($: EngineInterface, prompt: string, s: Swarm, workflow: Workflow | undefined, now: number, shown: boolean): Promise<PromptTicket> {
   const loaded = shown ? s.feature : undefined
-  const sources = loaded ? [sourceById(loaded.sourceId, workflow)] : (workflow?.sources ?? [])
+  const loadedSource = loaded && sourceById(loaded.sourceId, workflow)
+  const sources = loadedSource ? [loadedSource] : (workflow?.sources ?? [])
   let ref: TicketRef | undefined
   // A feature kept in the state but not on the screen still names its tickets: it is read again below, not asked for.
   for (const src of sources) ref ??= src.refOfText(prompt, s.feature)
-  // Nothing on the screen, or the feature on it is all done: the prompt's ticket may belong to another
-  // spec, or be a ticket added to this one since it was read. (An empty feature has nothing left, so it counts.)
-  const isLookedUp = !ref && (!loaded || isEveryTicketDone(loaded.tickets, new Set(loaded.merged))) && workflow?.sources.some(src => src.mayNameTicket?.(prompt))
+  const isFeatureDone = !!loaded && isEveryTicketDone(loaded.tickets, new Set(loaded.merged))
+  // A feature of standalone tickets takes another one at any time; it is never "over" before it is done.
+  const isStandaloneLoaded = !!loaded && loadedSource?.isStandalone?.(loaded.origin) === true
+  // Nothing on the screen, or the feature on it is all done (or is standalone tickets): the prompt's ticket may
+  // belong to another spec, or be a ticket added to this one since it was read. (An empty feature has nothing left, so it counts.)
+  const isLookedUp = !ref && (!loaded || isFeatureDone || isStandaloneLoaded) && workflow?.sources.some(src => src.mayNameTicket?.(prompt))
   if (isLookedUp && workflow) ref = await resolveUnloaded($, workflow, prompt, now, s)
 
   if (!ref) return {}
+  // Standalone tickets not all done are not left for a spec.
+  if (isStandaloneLoaded && !isFeatureDone && !loadedSource?.isStandalone?.(ref.origin)) return {}
   // Found in the loaded feature: its card points at it. One looked up is read again, in case it is new.
   if (!isLookedUp && loaded?.origin === ref.origin) return { ticket: ref.ticket, ticketNumber: ref.number }
   if (!workflow) return {}
   // A ticket pointed at: the ticket source setting is read afresh before any tickets are.
   const choice = await pickSource($, workflow)
   if (!choice?.source) return {}
+  // A standalone ticket joins the standalone tickets already loaded: `loadFeature` sees to that.
   return { ticket: ref.ticket, ticketNumber: ref.number, load: { source: choice.source, origin: ref.origin } }
 }

@@ -132,15 +132,116 @@ test('load: a failing gh gives a reason, it does not throw', async () => {
   expect(none.ok).toBe(false)
 })
 
-test('originOfArgs: #N, a bare number and an issue URL; a path or other text is none', () => {
+test('originOfArgs: every #N, bare number and issue URL in order, kept for load to sort into spec or standalone; a path or other text is none', () => {
   const o = githubSource.originOfArgs
-  expect(o('#12')).toBe('12')
-  expect(o('12')).toBe('12')
-  expect(o(' 12 ')).toBe('12')
-  expect(o('https://github.com/Cyuhsuan/implement-swarm/issues/12')).toBe('12')
-  expect(o('look at #7 please')).toBe('7')
+  expect(o('#12')).toBe('args:12')
+  expect(o('12')).toBe('args:12')
+  expect(o(' 12 ')).toBe('args:12')
+  expect(o('https://github.com/Cyuhsuan/implement-swarm/issues/12')).toBe('args:12')
+  expect(o('look at #7 please')).toBe('args:7')
+  expect(o('#7 https://github.com/o/r/issues/5 and #7, #9')).toBe('args:7,5,9')
+  expect(o('11 14')).toBe('args:11,14')
   expect(o('.scratch/f/spec.md')).toBeUndefined()
   expect(o('')).toBeUndefined()
+  expect(githubSource.originOfCommand('#3 #4')).toBe('args:3,4')
+})
+
+// 30 and 31 are standalone (31 is blocked by 30), 12 is a ticket of spec 10, 98 does not exist, 97 is a pull request.
+const standaloneEnv = (extra: Record<string, unknown> = {}, calls: string[] = []) =>
+  ghEnv(
+    {
+      'issues/10': SPEC,
+      'issues/10/sub_issues?per_page=100': [issue(12, 'API', 'open')],
+      'issues/12/parent': issue(10, 'Login feature', 'open'),
+      'issues/12': issue(12, 'API', 'open'),
+      'issues/30/parent': NO_PARENT,
+      'issues/30': issue(30, 'Lone A', 'open', '- [x] a\n- [ ] b'),
+      'issues/30/sub_issues?per_page=100': [],
+      'issues/31/parent': NO_PARENT,
+      'issues/31': issue(31, 'Lone B', 'closed'),
+      'issues/31/sub_issues?per_page=100': [],
+      'issues/31/dependencies/blocked_by': [{ number: 30 }, { number: 77 }],
+      'issues?state=all&per_page=100': [],
+      'issues/97/parent': NO_PARENT,
+      'issues/97': { ...issue(97, 'A PR', 'open'), pull_request: {} },
+      'issues/98/parent': NO_PARENT,
+      ...extra,
+    },
+    calls,
+  )
+
+test('load: issues named with no spec among them are one feature called 獨立票, steps by blocked-by inside the feature only', async () => {
+  const result = await githubSource.load(standaloneEnv(), 'args:31,30')
+  expect(result.ok).toBe(true)
+  if (!result.ok) return
+  expect(result.feature.name).toBe('獨立票')
+  expect(result.feature.sourceId).toBe('github')
+  expect(result.feature.tickets.map(t => [t.number, t.title, t.status, t.checked, t.checks, t.step, t.blockedBy])).toEqual([
+    ['30', 'Lone A', 'open', 1, 2, 1, []],
+    ['31', 'Lone B', 'resolved', 0, 0, 2, ['30']],
+  ])
+  // the feature names its tickets, so it is read again from its origin alone
+  expect(githubSource.isStandalone!(result.feature.origin)).toBe(true)
+  const again = await githubSource.load(standaloneEnv(), result.feature.origin)
+  expect(again.ok && again.feature.tickets.map(t => t.number)).toEqual(['30', '31'])
+  expect(githubSource.isStandalone!('10')).toBe(false)
+  expect(githubSource.isStandalone!('args:10')).toBe(false)
+})
+
+test('load: a ticket of a spec named loads its spec; the first spec named wins, standalone issues named are left out', async () => {
+  const viaChild = await githubSource.load(standaloneEnv(), 'args:12')
+  expect(viaChild.ok && [viaChild.feature.name, viaChild.feature.origin]).toEqual(['Login feature', '10'])
+  const mixed = await githubSource.load(standaloneEnv(), 'args:30,10,31')
+  expect(mixed.ok && [mixed.feature.name, mixed.feature.tickets.map(t => t.number)]).toEqual(['Login feature', ['12']])
+  // an issue with sub-issues is a spec; one with Part of children too
+  const byPartOf = await githubSource.load(
+    standaloneEnv({
+      'issues/40/parent': NO_PARENT,
+      'issues/40': issue(40, 'Old spec', 'open'),
+      'issues/40/sub_issues?per_page=100': [],
+      'issues/41/dependencies/blocked_by': [],
+      'issues?state=all&per_page=100': [issue(41, 'Child', 'open', 'Part of #40')],
+    }),
+    'args:30,40',
+  )
+  expect(byPartOf.ok && [byPartOf.feature.name, byPartOf.feature.tickets.map(t => t.number)]).toEqual(['Old spec', ['41']])
+})
+
+test('load: numbers that do not exist or are pull requests are left out; if none is left it fails, not an empty feature', async () => {
+  const some = await githubSource.load(standaloneEnv(), 'args:98,30,97')
+  expect(some.ok && some.feature.tickets.map(t => t.number)).toEqual(['30'])
+  const none = await githubSource.load(standaloneEnv(), 'args:98,97')
+  expect(none.ok).toBe(false)
+  if (!none.ok) expect(none.reason).toMatch(/讀不到/)
+})
+
+test('load: one failing call fails the whole standalone feature', async () => {
+  const boom = { exitCode: 1, stderr: 'gh: HTTP 500 Server Error' }
+  expect((await githubSource.load(standaloneEnv({ 'issues/31': boom }), 'args:30,31')).ok).toBe(false)
+  expect((await githubSource.load(standaloneEnv({ 'issues/31/dependencies/blocked_by': boom }), 'standalone:30,31')).ok).toBe(false)
+  expect((await githubSource.load(standaloneEnv({ 'issues/30/sub_issues?per_page=100': boom }), 'args:30')).ok).toBe(false)
+})
+
+test('resolveRef: an open issue with no parent is a standalone ticket; a closed one or a pull request is nothing', async () => {
+  const env = standaloneEnv()
+  expect(await githubSource.resolveRef!(env, 'do #30')).toEqual({ ok: true, ref: { origin: 'standalone:30', ticket: '30', number: '30' } })
+  expect(await githubSource.resolveRef!(env, 'do #31')).toEqual({ ok: true })
+  expect(await githubSource.resolveRef!(env, 'do #97')).toEqual({ ok: true })
+  // a ticket of a spec stays the spec's, and the first number that counts wins
+  expect(await githubSource.resolveRef!(env, 'do #31 then #12')).toEqual({ ok: true, ref: { origin: '10', ticket: '12', number: '12' } })
+  expect(githubSource.isStandalone!('standalone:30')).toBe(true)
+  expect(githubSource.isStandalone!('10')).toBe(false)
+})
+
+test('joinStandalone: the origin of the standalone feature with the tickets of both, never twice; anything else is the second', () => {
+  expect(githubSource.joinStandalone!('standalone:30', 'standalone:31')).toBe('standalone:30,31')
+  expect(githubSource.joinStandalone!('standalone:30,31', 'standalone:30')).toBe('standalone:30,31')
+  expect(githubSource.joinStandalone!('10', 'standalone:31')).toBe('standalone:31')
+  expect(githubSource.joinStandalone!('standalone:30', '10')).toBe('10')
+})
+
+test('emptyText: a standalone feature is not described as a spec', () => {
+  expect(githubSource.emptyText('standalone:30')).not.toMatch(/#standalone/)
 })
 
 test('refOfText: only numbers in the loaded feature point at a ticket', async () => {
@@ -172,7 +273,8 @@ test('resolveRef: the parent of the issue a prompt names, by the parent endpoint
   })
   expect(await githubSource.resolveRef!(env, 'see https://github.com/o/r/issues/12')).toEqual({ ok: true, ref: { origin: '10', ticket: '12', number: '12' } })
   expect(await githubSource.resolveRef!(env, 'do #13')).toEqual({ ok: true, ref: { origin: '10', ticket: '13', number: '13' } })
-  expect(await githubSource.resolveRef!(env, 'do #14')).toEqual({ ok: true })
+  // an open issue with no parent is a standalone ticket
+  expect(await githubSource.resolveRef!(env, 'do #14')).toEqual({ ok: true, ref: { origin: 'standalone:14', ticket: '14', number: '14' } })
   expect(await githubSource.resolveRef!(env, 'no number here')).toEqual({ ok: true })
   const failed = await githubSource.resolveRef!(ghEnv({ 'issues/12/parent': { exitCode: 4, stderr: 'run gh auth login' } }), '#12')
   expect(failed).toEqual({ ok: false, reason: '`gh` 未登入' })
@@ -339,7 +441,7 @@ test('resolveRef: numbers are tried in the order they appear in the text, three 
   const replies: Record<string, unknown> = {}
   for (const n of [5, 6, 7, 8]) {
     replies[`issues/${n}/parent`] = NO_PARENT
-    replies[`issues/${n}`] = issue(n, 'Lone', 'open')
+    replies[`issues/${n}`] = issue(n, 'Lone', 'closed')
   }
   const env = ghEnv(replies, calls)
   const text = 'see #5 and https://github.com/o/r/issues/7 and #6, then #8'

@@ -13,8 +13,12 @@ _Avoid_: 流程、pipeline；也不是指 Claude Code 的 Workflow 工具
 _Avoid_: tracker、後端、provider
 
 **一批票（Feature）**:
-同一個 spec 拆出來、一起畫在面板上的那些票。
+一起畫在面板上的那些票：同一個 spec 拆出來的票，或同一次工作裡的獨立票。兩種不會混在同一批。
 _Avoid_: 專案、epic
+
+**獨立票（Standalone ticket）**:
+沒有上層 spec 的票。只有票來源能區分有無上層時才存在；本地票檔沒有獨立票。
+_Avoid_: 單張票、孤兒票、無主票
 
 **純觀察（Observe）**:
 面板不套用任何工作流時的樣子：只呈現 lead、子代理與 session log，沒有票與時間步。
