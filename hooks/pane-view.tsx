@@ -6,7 +6,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Swarm, SwarmAgent } from '../types'
 import { ACCENT } from './accent'
-import { spinnerAt, sweptBar } from './animation'
+import { BEE, beeLeft, isReturning, returnLeft, spinnerAt, sweptBar } from './animation'
 import { PHASE_LABEL, PHASE_PERCENT, isLive } from './agent-phase'
 import { workflowLine } from './pane-model'
 import type { PaneModel } from './pane-model'
@@ -117,6 +117,17 @@ export function drawPane(
     ].filter(Boolean).join(' ')
     const barW = Math.max(4, inner - 12)
 
+    // The bee lies on the card's top edge, over the frame, in no cell of the card's own.
+    // Inside the frame it has `cardW - 2` columns, two of them its own.
+    const beeSpan = cardW - 4
+    const beeAt = !isAnimated
+      ? (isRunning ? 0 : undefined)
+      : isRunning
+        ? beeLeft(now, beeSpan)
+        : isReturning(a, now)
+          ? returnLeft(now, a.endedAt!, beeSpan, cardW - 2)
+          : undefined
+
     return (
       <Box
         key={a.id}
@@ -126,6 +137,11 @@ export function drawPane(
         borderColor={frame}
         paddingX={1}
       >
+        {beeAt !== undefined && (
+          <Box position="absolute" top={-1} left={beeAt}>
+            <Text>{BEE}</Text>
+          </Box>
+        )}
         <Box justifyContent="space-between">
           <Text bold={isFailed} wrap="truncate-end">
             <Text color={frame}>{dot} </Text>
@@ -171,7 +187,12 @@ export function drawPane(
     : ` ${String(featurePercent).padStart(3)}%  ${doneCount}/${tickets.length} 票 · step ${Math.min(currentStep, stepCount)}/${stepCount}`
   const featureBarW = Math.max(6, boxInner - cells(featureTail))
   const isSweeping = isAnimated && live.length > 0 && featurePercent > 0 && featurePercent < 100
-  const leadTally = isWorkflowView ? `已派 ${s.agents.length} · 已 merge ${model.mergedCount}` : `已派 ${s.agents.length}`
+  // The lead is the hive: it counts the bees that came home.
+  const leadTally = [
+    `已派 ${s.agents.length}`,
+    isWorkflowView ? `已 merge ${model.mergedCount}` : '',
+    model.returnedCount > 0 ? `${BEE} ${model.returnedCount}` : '',
+  ].filter(Boolean).join(' · ')
   // Narrow, a log line names its ticket by number alone.
   const whoW = isNarrow ? 4 : 14
   const who = (name: string) => {

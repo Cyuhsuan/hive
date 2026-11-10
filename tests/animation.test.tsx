@@ -393,6 +393,8 @@ test('no frame is drawn for a pane that is not the one shown, or with nothing li
   // shown again, but the subagent is done
   world.isShown = true
   await finish($, 'agent-1')
+  // its bee is still on its way home for a second, and the pane is redrawn till then
+  await clock.advance(1100)
   await clock.settle()
   world.invalidations = 0
   await clock.advance(2000)

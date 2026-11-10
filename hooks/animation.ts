@@ -1,5 +1,5 @@
-// Animation says a subagent is at work, and nothing else: with none live the
-// pane is still. A frame is read off the clock, so nothing about it is kept.
+// Animation says a subagent is at work, and nothing else: with none live (and
+// no bee still returning to the hive) the pane is still. A frame is read off the clock, so nothing about it is kept.
 // No engine API here, so these can be tested without a mock.
 
 import { ACCENT } from './accent'
@@ -22,6 +22,35 @@ const GLOW_SHADES = 8
 /** The spinner's glyph at `now`: every card and ticket at work draws the same one. */
 export function spinnerAt(now: number): string {
   return SPINNER[Math.floor(now / FRAME_MS) % SPINNER.length]!
+}
+
+/** The bee: two cells wide. */
+export const BEE = '🐝'
+/** One lap of a bee along the top of its card: out to the far end and back. */
+export const BEE_LAP_MS = 4000
+/** How long a finished subagent's bee takes to leave its card. */
+export const RETURN_MS = 1000
+
+/** The bee's column along a card's top edge at `now`: 0 to `span`, out and back once a lap. */
+export function beeLeft(now: number, span: number): number {
+  const lap = (now % BEE_LAP_MS) / BEE_LAP_MS
+  return Math.round((lap < 0.5 ? lap * 2 : 2 - lap * 2) * span)
+}
+
+/** How far the bee is through its return, 0 at the subagent's finish and 1 once it is gone. */
+export function returnProgress(now: number, endedAt: number): number {
+  return Math.min(1, Math.max(0, (now - endedAt) / RETURN_MS))
+}
+
+/** A subagent that finished, not failed, a moment ago: its bee is still on its way home. */
+export function isReturning(a: { phase: string; endedAt?: number }, now: number): boolean {
+  return a.phase === 'done' && a.endedAt !== undefined && returnProgress(now, a.endedAt) < 1
+}
+
+/** The returning bee's column: from where it flew at the finish to `edge`, past the card. */
+export function returnLeft(now: number, endedAt: number, span: number, edge: number): number {
+  const from = beeLeft(endedAt, span)
+  return Math.round(from + (edge - from) * returnProgress(now, endedAt))
 }
 
 /** A stretch of bar cells drawn alike; `glow` is the tint of lit cells, absent for the bar's own color. */
