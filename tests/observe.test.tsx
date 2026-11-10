@@ -34,6 +34,8 @@ type World = {
   /** The status line, as the plugin set it. */
   statuses: (string | undefined)[]
   opens: number
+  /** Set to make listing an issues folder fail. */
+  listFails?: boolean
 }
 
 /** The engine beneath the plugin: a clock, a tracker file, an issues folder, agents. */
@@ -53,9 +55,12 @@ function engine(on: On, world: World) {
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `agent-${++n}` }))
   on('tool.call', () => ({ result: {} }))
   on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
-  on('fs.list', () => ({
-    value: Object.keys(TICKETS).map(name => ({ name, kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false })),
-  }))
+  on('fs.list', () => {
+    if (world.listFails) throw new Error('ENOENT')
+    return {
+      value: Object.keys(TICKETS).map(name => ({ name, kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false })),
+    }
+  })
   on('fs.read', (_: unknown, e: { path: string }) => {
     world.reads.push(e.path)
     if (e.path.endsWith(TRACKER)) {
@@ -277,7 +282,70 @@ test('mattpocock-skills: /swarm <folder> enters the workflow, earlier cards stay
   await ui.unmount()
 })
 
-test('mattpocock-skills: a missing tracker file reads as local', WF, async ($, on) => {
+/** A card done, one failed, one running, all on the feature in `.scratch/f/issues`. */
+async function endedAndRunningLocal($: any) {
+  await spawn($, '實作 .scratch/f/issues/02-api.md', '第一張', 'ticket-implementer')
+  await finish($, 'agent-1')
+  await spawn($, '實作 .scratch/f/issues/02-api.md', '第二張', 'ticket-implementer')
+  await finish($, 'agent-2', 1000, 'error')
+  await spawn($, '實作 .scratch/f/issues/02-api.md', '第三張', 'ticket-implementer')
+}
+const lastStatus = (w: World) => w.statuses.at(-1) ?? ''
+
+test('local: a prompt pointing at another folder swaps the feature, drops the ended cards and keeps the log and the running card', WF, async ($, on) => {
+  const world = newWorld(LOCAL)
+  engine(on, world)
+  await start($)
+  await endedAndRunningLocal($)
+  expect(lastStatus(world)).toMatch(/swarm 1 跑 · 1 完 · 1 敗/)
+  await spawn($, '實作 .scratch/g/issues/02-api.md', '第四張', 'ticket-implementer')
+  expect(lastStatus(world)).toMatch(/swarm 2 跑 · 0 完(?! · \d+ 敗)/)
+  const ui = await mount($)
+  expect(await has(ui, /feature g/)).toBe(true)
+  expect(await has(ui, /派出 ticket/)).toBe(true) // the log stays
+  await ui.unmount()
+
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'a', new_string: 'b', agentId: 'agent-3' } as never)
+  await finish($, 'agent-3')
+  expect(lastStatus(world)).toMatch(/swarm 1 跑 · 1 完/) // the card that was running was updated
+})
+
+test('local: /swarm <another folder> drops the ended cards and keeps the log', WF, async ($, on) => {
+  const world = newWorld(LOCAL)
+  engine(on, world)
+  await start($)
+  await endedAndRunningLocal($)
+  await $.command.run({ command: 'swarm', args: '.scratch/g/issues' } as never)
+  expect(lastStatus(world)).toMatch(/swarm 1 跑 · 0 完(?! · \d+ 敗)/)
+  const ui = await mount($)
+  expect(await has(ui, /feature g/)).toBe(true)
+  expect(await has(ui, /派出 ticket/)).toBe(true)
+  await ui.unmount()
+})
+
+test('local: reading the same folder again, or the first folder with no feature loaded, keeps the ended cards', WF, async ($, on) => {
+  const world = newWorld(LOCAL)
+  engine(on, world)
+  await start($)
+  await spawn($, 'explore', '先探索', 'Explore')
+  await finish($, 'agent-1')
+  await $.command.run({ command: 'swarm', args: '.scratch/f/issues' } as never) // the first feature
+  expect(lastStatus(world)).toMatch(/swarm 0 跑 · 1 完/)
+  await $.command.run({ command: 'swarm', args: '.scratch/f/issues' } as never) // the same one
+  expect(lastStatus(world)).toMatch(/swarm 0 跑 · 1 完/)
+})
+
+test('local: a folder that cannot be read leaves the ended cards', WF, async ($, on) => {
+  const world = newWorld(LOCAL)
+  engine(on, world)
+  await start($)
+  await endedAndRunningLocal($)
+  world.listFails = true
+  await $.command.run({ command: 'swarm', args: '.scratch/g/issues' } as never)
+  expect(lastStatus(world)).toMatch(/1 完 · 1 敗/)
+})
+
+test('mattpocock-skills: a missing tracker file reads as local',WF, async ($, on) => {
   const world = newWorld(undefined)
   engine(on, world)
   await start($)

@@ -107,8 +107,11 @@ export async function loadFeature($: EngineInterface, source: TicketSource, orig
         wanted = joined
         return cur
       }
+      // Another feature replaces the one on the screen: the cards that ended go with it, the running ones stay.
+      const isSwap = cur.feature !== undefined && !same
       return {
         ...cur,
+        agents: isSwap ? cur.agents.filter(isLive) : cur.agents,
         // The origin asked for may name tickets only (a skill's arguments): the feature says which feature they are.
         feature: { ...loaded, merged: same ? same.merged : [] },
         pending: undefined,
