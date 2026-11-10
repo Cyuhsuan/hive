@@ -38,6 +38,8 @@ export type PaneModel = {
   /** Done cards folded into one line. */
   hiddenDone: number
   mergedCount: number
+  /** Subagents that finished and whose bees are home: failed ones are not counted. */
+  returnedCount: number
   logLines: SwarmLogLine[]
 }
 
@@ -132,6 +134,7 @@ export function paneModelOf(s: Swarm, isWorkflowView: boolean): PaneModel {
     ordered,
     hiddenDone,
     mergedCount: ctx.merged.size,
+    returnedCount: done.length,
     logLines: logLinesOf(s.log),
   }
 }
