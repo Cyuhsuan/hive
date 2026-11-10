@@ -370,6 +370,26 @@ test('mattpocock-skills: /swarm reset empties the record and returns to observin
   await ui.unmount()
 })
 
+test('a start skill typed while a ticket is being worked: the card stays, tied to no ticket, and the new feature draws that ticket as waiting', WF, async ($, on) => {
+  const world = newWorld(LOCAL)
+  engine(on, world)
+  on('command.run', () => ({ text: 'ran' }))
+  await start($)
+  await $.tool.call({ tool: 'Skill', skill: 'mattpocock-skills:implement-spec', args: '.scratch/f/spec.md' } as never)
+  await spawn($, '實作 .scratch/f/issues/02-api.md', '第 2 張票', 'ticket-implementer')
+  let ui = await mount($)
+  expect(await has(ui, /02 登入 API/)).toBe(true) // the ticket card
+  await ui.unmount()
+
+  await $.command.run({ command: 'mattpocock-skills:implement-spec', args: '.scratch/f/spec.md' } as never)
+  ui = await mount($)
+  expect(await has(ui, /第 2 張票 · ticket-impl/)).toBe(true) // an ordinary card now
+  expect(await has(ui, /(?<!○)02 登入 API/)).toBe(false) // no ticket card
+  expect(await has(ui, /○02/)).toBe(true) // the ticket is ready, not in progress
+  expect(await has(ui, /1 forks · 1 running/)).toBe(true) // the card still runs
+  await ui.unmount()
+})
+
 test('workflow view: the merge marker still follows the lead merging a ticket', WF, async ($, on) => {
   const world = newWorld(LOCAL)
   engine(on, world)

@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Swarm, SwarmAgent } from '../types'
 import { PHASE_LABEL, describeCall, isLive, phaseOfCall, whoOf } from './agent-phase'
-import { enterWorkflow, loadFeature, openFeature, pickSource, refreshFeature, reportFailure, ticketOfPrompt } from './feature-load'
+import { beginWorkflow, enterWorkflow, loadFeature, openFeature, pickSource, refreshFeature, reportFailure, ticketOfPrompt } from './feature-load'
 import { paneModelOf, workflowLine } from './pane-model'
 import { drawPane } from './pane-view'
 import { EMPTY, PANE, TITLE, isWorkflowShown, log, patchAgent, readSwarm, status, updateSwarm } from './swarm-state'
@@ -23,6 +23,11 @@ const REDRAW_MS = 60
 /** Opens the pane at the surface's own width; the person drags it from there. */
 async function openPane($: EngineInterface) {
   return $.ui.open({ id: PANE, title: TITLE })
+}
+
+/** The workflow begins (its start skill ran, from the lead or typed by the person): the panel starts the feature over, and the pane opens unless nothing could start. */
+async function beginAndOpen($: EngineInterface, workflow: Workflow, skill: string, args: string) {
+  if (await beginWorkflow($, workflow, skill, args)) await openPane($)
 }
 
 // ---------------------------------------------------------------- hooks
@@ -100,24 +105,15 @@ export const register: Register = (on, options) => {
     return { text: `Implement swarm pane opened.${line}` }
   })
 
-  // The workflow begins: its start skill was invoked.
+  // The workflow begins: its start skill was invoked, by the lead through the Skill tool or typed by the person.
   on('tool.call', { tool: 'Skill' }, async ($, e, next) => {
-    if (e.agentId === undefined && workflow?.isStartSkill(e.skill)) {
-      const choice = await pickSource($, workflow)
-      if (choice?.source) {
-        const at = await $.clock.now()
-        const source = choice.source
-        await updateSwarm($, s => ({ ...EMPTY, startedAt: at, sourceLabel: s.sourceLabel, sourceId: s.sourceId }))
-        await log($, 'lead', `/${e.skill} 開始，等待派票`)
-        const origin = source.originOfArgs(e.args ?? '')
-        // With no spec named the workflow waits for tickets; with one, it begins when that is read.
-        if (origin === undefined || (await loadFeature($, source, origin))) {
-          await enterWorkflow($, false)
-          await openPane($)
-        }
-      }
-    }
+    if (e.agentId === undefined && workflow?.isStartSkill(e.skill)) await beginAndOpen($, workflow, e.skill, e.args ?? '')
+    return next(e)
+  }).catch((_$, e, next) => next(e))
 
+  // The command itself runs as always; the panel's part may not stop it.
+  on('command.run', async ($, e, next) => {
+    if (workflow?.isStartSkill(e.command)) await beginAndOpen($, workflow, e.command, e.args ?? '')
     return next(e)
   }).catch((_$, e, next) => next(e))
 

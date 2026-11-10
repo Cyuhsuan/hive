@@ -8,3 +8,12 @@ import type { Ticket } from '../types'
 export function isDone(t: Ticket, merged: ReadonlySet<string>): boolean {
   return merged.has(t.number) || t.status === 'resolved'
 }
+
+/**
+ * Every ticket is done (no tickets at all counts as done: nothing is left). The
+ * pane asks for "has tickets, and all done" instead, since an empty feature is
+ * not a finished one.
+ */
+export function isEveryTicketDone(tickets: readonly Ticket[], merged: ReadonlySet<string>): boolean {
+  return tickets.every(t => isDone(t, merged))
+}
