@@ -237,13 +237,13 @@ export function drawPane(
         </Box>
       )}
 
-      {/* The lead is the hive: its frame is honeycomb, drawn by hand (a border style has no such cells). Its two rows never wrap, so each side is two cells. */}
+      {/* The lead is the hive: its frame is honeycomb, capped and open cells in no even order, drawn by hand (a border style has no such cells). Its two rows never wrap, so each side is two cells. */}
       <Box key="hive" flexDirection="column" width={W}>
         <Text color={ACCENT}>{comb(W)}</Text>
         <Box flexDirection="row">
           <Box flexDirection="column" width={1}>
-            <Text color={ACCENT}>{comb(1, 1)}</Text>
-            <Text color={ACCENT}>{comb(1)}</Text>
+            <Text color={ACCENT}>{comb(1, 4)}</Text>
+            <Text color={ACCENT}>{comb(1, 7)}</Text>
           </Box>
           <Box flexDirection="column" width={W - 2} paddingX={1}>
             <Text wrap="truncate-end">
@@ -256,11 +256,11 @@ export function drawPane(
             </Box>
           </Box>
           <Box flexDirection="column" width={1}>
-            <Text color={ACCENT}>{comb(1, W)}</Text>
-            <Text color={ACCENT}>{comb(1, W - 1)}</Text>
+            <Text color={ACCENT}>{comb(1, 9)}</Text>
+            <Text color={ACCENT}>{comb(1, 15)}</Text>
           </Box>
         </Box>
-        <Text color={ACCENT}>{comb(W, 1)}</Text>
+        <Text color={ACCENT}>{comb(W, 11)}</Text>
       </Box>
 
       <Box paddingLeft={2}>

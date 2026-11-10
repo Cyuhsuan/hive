@@ -27,9 +27,15 @@ export function spinnerAt(now: number): string {
 
 /** The bee: two cells wide. */
 export const BEE = '🐝'
-/** A stretch of the hive's frame, `length` cells of honeycomb: full and empty cells by turns, `shift` moving which comes first. */
-export function comb(length: number, shift = 0): string {
-  return Array.from({ length: Math.max(0, length) }, (_, i) => ((i + shift) % 2 === 0 ? '⬢' : '⬡')).join('')
+// Honeycomb as bees leave it: capped cells and open ones in no even order. The run
+// is a prime number of cells long, so two stretches cut from different places never fall in step.
+const COMB = '⬢⬢⬡⬢⬡⬡⬢⬢⬢⬡⬢⬡⬢⬢⬡⬡⬢⬡⬢⬢⬡⬢⬡⬡⬡⬢⬢⬡⬢'
+/**
+ * A stretch of the hive's frame: `length` cells of honeycomb, cut from the comb at `from`.
+ * The same stretch every time it is asked for, so the frame is still from one drawing to the next.
+ */
+export function comb(length: number, from = 0): string {
+  return Array.from({ length: Math.max(0, length) }, (_, i) => COMB[(from + i) % COMB.length]!).join('')
 }
 /** One lap of a bee along the top of its card: out to the far end and back. */
 export const BEE_LAP_MS = 4000

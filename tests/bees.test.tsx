@@ -243,7 +243,7 @@ test('narrow, the bee flies and the count shows, and nothing is pushed out of th
   }
 })
 
-test('the lead frame is honeycomb on all four sides, with no subagent yet and at every width', ON, async ($, on) => {
+test('the lead frame is uneven honeycomb on all four sides, with no subagent yet and at every width', ON, async ($, on) => {
   engine(on)
   await start($)
 
@@ -251,11 +251,13 @@ test('the lead frame is honeycomb on all four sides, with no subagent yet and at
     const hive = cardOf(await drawn($, columns), 'hive')
     expect(hive.props!['width']).toBe(columns)
     const [top, middle, bottom] = hive.children as Node[]
-    // top and bottom: honeycomb the whole width, full and empty cells by turns
+    // top and bottom: honeycomb the whole width, capped and open cells in no even order
     for (const edge of [top!, bottom!]) {
       const row = String(edge.children?.[0])
       expect(row).toMatch(/^[⬢⬡]+$/)
-      expect(row).not.toMatch(/⬢⬢|⬡⬡/)
+      expect(row).toMatch(/⬢⬢/)
+      expect(row).toMatch(/⬡⬡/)
+      expect(row).toMatch(/⬢⬡⬢/)
       expect(cells(row)).toBe(columns)
     }
     // the sides: one cell each per row, the lead's two rows between them
@@ -269,8 +271,12 @@ test('the lead frame is honeycomb on all four sides, with no subagent yet and at
     expect(body!.children).toHaveLength(2)
     expect(text(body)).toContain('lead')
     expect(text(body)).toContain('已派 0')
+    // the two edges are not the same stretch of comb
+    expect(String(top!.children?.[0])).not.toBe(String(bottom!.children?.[0]))
     // no line of a plain frame is left on it
     expect(find(hive, n => n.props?.borderStyle !== undefined)).toHaveLength(0)
+    // and the comb is still: drawn again, cell for cell the same
+    expect(text(cardOf(await drawn($, columns), 'hive'))).toBe(text(hive))
   }
 })
 
