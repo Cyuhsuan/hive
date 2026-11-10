@@ -1,6 +1,6 @@
 {
   "name": "implement-swarm",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "子代理面板：預設只觀察子代理的動作與結果；選用 mattpocock-skills 工作流時，再畫出票、時間步與進度。",
   "types": "./types/index.d.ts",
   "license": "MIT",
