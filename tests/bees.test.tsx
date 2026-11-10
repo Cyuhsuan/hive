@@ -62,6 +62,8 @@ const find = (node: unknown, test: (n: Node) => boolean): Node[] => {
 }
 const cardOf = (tree: Node, id: string) => find(tree, n => n.props?.key === id)[0]!
 const text = (node: unknown) => JSON.stringify(node)
+/** The framed Box of a card: the terminal paints a frame over what its own Box holds. */
+const framedOf = (card: Node) => find(card, n => n.props?.borderStyle !== undefined)[0]!
 /** The bees laid over a card: absolute boxes holding the bee. */
 const beesOn = (card: Node) => find(card, n => n.props?.position === 'absolute' && text(n).includes('🐝'))
 const beeLeftOf = (card: Node) => beesOn(card)[0]!.props!['left'] as number
@@ -92,13 +94,17 @@ test('the bee takes no cell of the card: its title, right side and width are the
   const bee = beesOn(card)[0]!
   expect(bee.props!['position']).toBe('absolute')
   // the card's flow: the title row and the detail line, as before the bee
-  const flow = (card.children ?? []).filter(c => c !== bee)
+  const framed = framedOf(card)
+  const flow = framed.children ?? []
   expect(flow).toHaveLength(2)
   expect(text(flow[0])).toContain('探索 · Explore')
   expect(text(flow[0])).toContain('0s')
   expect(card.props!['width']).toBe(38)
-  // and laid on the card's top edge
-  expect(bee.props!['top']).toBe(-1)
+  // and laid on the card's top edge: over the framed Box, after it, never inside it,
+  // where the frame would be painted over the bee
+  expect(bee.props!['top']).toBe(0)
+  expect(beesOn(framed)).toHaveLength(0)
+  expect(card.children?.indexOf(bee)).toBeGreaterThan(card.children!.indexOf(framed))
 })
 
 // ------------------------------------------------------------ the return
@@ -129,11 +135,11 @@ test('the returning bee leaves past the card edge', ON, async ($, on) => {
   await finish($, 'agent-1')
   await clock.advance(RETURN_MS - REDRAW_MS)
 
-  // From the inner edge, the card's right frame is column 36 of its 38: a bee at 37 or more
-  // (two cells wide) lies wholly past it, and further right than a flying bee ever goes (34).
+  // From the card's left edge, its right frame is column 37 of its 38: a bee at 38 or more
+  // (two cells wide) lies wholly past it, and further right than a flying bee ever goes (35).
   const left = beeLeftOf(cardOf(await drawn($), 'agent-1'))
-  expect(left).toBeGreaterThanOrEqual(37)
-  expect(left).toBeGreaterThan(38 - 4)
+  expect(left).toBeGreaterThanOrEqual(38)
+  expect(left).toBeGreaterThan(38 - 3)
 })
 
 test('a failed subagent has no bee the moment it fails, and keeps its red frame', ON, async ($, on) => {
@@ -144,7 +150,7 @@ test('a failed subagent has no bee the moment it fails, and keeps its red frame'
 
   const card = cardOf(await drawn($), 'agent-1')
   expect(beesOn(card)).toHaveLength(0)
-  expect(card.props!['borderColor']).toBe('error')
+  expect(framedOf(card).props!['borderColor']).toBe('error')
   expect(text(card)).toContain('✗')
 })
 
@@ -229,8 +235,8 @@ test('narrow, the bee flies and the count shows, and nothing is pushed out of th
     expect(width).toBeLessThanOrEqual(columns - 2)
     // the whole bee (two cells) lies inside the card's frame
     const left = beeLeftOf(card)
-    expect(left).toBeGreaterThanOrEqual(0)
-    expect(left + 2).toBeLessThanOrEqual(width - 2)
+    expect(left).toBeGreaterThanOrEqual(1)
+    expect(left + 2).toBeLessThanOrEqual(width - 1)
     // the lead's tally still fits the lead's frame
     const lead = find(tree, n => n.type === 'Text' && text(n).includes('🐝 1'))[0]!
     expect(cells(String(lead.children?.[0]))).toBeLessThanOrEqual(columns - 4)
@@ -288,13 +294,13 @@ test('workflow view: a ticket card, implementing or reviewing, has a bee and it 
   expect(beesOn(cardOf(tree, 'agent-1'))).toHaveLength(1)
   expect(text(cardOf(tree, 'agent-2'))).toContain('審查')
   expect(beesOn(cardOf(tree, 'agent-2'))).toHaveLength(1)
-  expect(beesOn(cardOf(tree, 'agent-1'))[0]!.props!['top']).toBe(-1)
+  expect(beesOn(cardOf(tree, 'agent-1'))[0]!.props!['top']).toBe(0)
 
   await finish($, 'agent-1')
   await clock.advance(RETURN_MS - REDRAW_MS)
   const returning = cardOf(await drawn($), 'agent-1')
   expect(beesOn(returning)).toHaveLength(1)
-  expect(beeLeftOf(returning)).toBeGreaterThanOrEqual(37)
+  expect(beeLeftOf(returning)).toBeGreaterThanOrEqual(38)
 
   await clock.advance(REDRAW_MS)
   expect(beesOn(cardOf(await drawn($), 'agent-1'))).toHaveLength(0)
@@ -330,8 +336,8 @@ test('workflow view: at 24, 56 and 84 columns the step chart, the cards and the 
     const width = card.props!['width'] as number
     expect(width).toBeLessThanOrEqual(columns - 2)
     const left = beeLeftOf(card)
-    expect(left).toBeGreaterThanOrEqual(0)
-    expect(left + 2).toBeLessThanOrEqual(width - 2)
+    expect(left).toBeGreaterThanOrEqual(1)
+    expect(left + 2).toBeLessThanOrEqual(width - 1)
 
     const lead = find(tree, n => n.type === 'Text' && text(n).includes('🐝 1'))[0]!
     expect(cells(String(lead.children?.[0]))).toBeLessThanOrEqual(columns - 4)
@@ -344,7 +350,7 @@ test('workflow view, animation off: a still bee on a live ticket card, none once
   await spawnTicket($, '01-schema.md')
   await spawnTicket($, '02-api.md')
 
-  expect(beeLeftOf(cardOf(await drawn($), 'agent-1'))).toBe(0)
+  expect(beeLeftOf(cardOf(await drawn($), 'agent-1'))).toBe(1)
   await finish($, 'agent-1')
   await fail($, 'agent-2')
   const tree = await drawn($)

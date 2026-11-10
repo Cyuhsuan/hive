@@ -117,57 +117,60 @@ export function drawPane(
     const barW = Math.max(4, inner - 12)
 
     // The bee lies on the card's top edge, over the frame, in no cell of the card's own.
-    // Inside the frame it has `cardW - 2` columns, two of them its own. Leaving, it
-    // flies on to `cardW + 1`, so its two cells lie past the right frame before it is gone.
+    // Between the corners it has `cardW - 2` columns, two of them its own. Leaving, it
+    // flies on to `cardW + 2`, so its two cells lie past the right frame before it is gone.
+    // A frame is painted over what its own Box holds, so the bee is no child of the framed
+    // Box: it is laid over it from the Box around the two, after it, at that Box's top row.
     const beeSpan = cardW - 4
     const beeAt = !isAnimated
-      ? (isRunning ? 0 : undefined)
+      ? (isRunning ? 1 : undefined)
       : isRunning
-        ? beeLeft(now, beeSpan)
+        ? 1 + beeLeft(now, beeSpan)
         : isReturning(a, now)
-          ? returnLeft(now, a.endedAt, beeSpan, cardW + 1)
+          ? 1 + returnLeft(now, a.endedAt, beeSpan, cardW + 1)
           : undefined
 
     return (
-      <Box
-        key={a.id}
-        flexDirection="column"
-        width={cardW}
-        borderStyle="round"
-        borderColor={frame}
-        paddingX={1}
-      >
+      <Box key={a.id} flexDirection="column" width={cardW}>
+        <Box
+          flexDirection="column"
+          flexGrow={1}
+          borderStyle="round"
+          borderColor={frame}
+          paddingX={1}
+        >
+          <Box justifyContent="space-between">
+            <Text bold={isFailed} wrap="truncate-end">
+              <Text color={frame}>{dot} </Text>
+              {clip(title, Math.max(4, inner - 3 - cells(right)))}
+            </Text>
+            <Text dimColor>{right}</Text>
+          </Box>
+          {!isTicketCard && (
+            <Text dimColor wrap="truncate-end">
+              {clip(
+                `${PHASE_LABEL[a.phase]} · ${a.tools} 次工具${isRunning && a.lastTool ? ` · ${a.lastTool}` : ''}`,
+                inner,
+              )}
+            </Text>
+          )}
+          {isTicketCard && (isRunning || isFailed) && (
+            <Text wrap="truncate-end">
+              <Text color={frame}>{bar(percent, barW)}</Text>
+              <Text dimColor> {String(percent).padStart(3)}% </Text>
+              {!isNarrow && <Text>{PHASE_LABEL[a.phase]}</Text>}
+            </Text>
+          )}
+          {isTicketCard && (isRunning || isFailed) && (
+            <Text dimColor wrap="truncate-end">
+              {clip(a.lastTool ?? '…', inner)}
+            </Text>
+          )}
+        </Box>
         {beeAt !== undefined && (
-          <Box position="absolute" top={-1} left={beeAt}>
+          <Box position="absolute" top={0} left={beeAt}>
             <Text>{BEE}</Text>
           </Box>
-        )}
-        <Box justifyContent="space-between">
-          <Text bold={isFailed} wrap="truncate-end">
-            <Text color={frame}>{dot} </Text>
-            {clip(title, Math.max(4, inner - 3 - cells(right)))}
-          </Text>
-          <Text dimColor>{right}</Text>
-        </Box>
-        {!isTicketCard && (
-          <Text dimColor wrap="truncate-end">
-            {clip(
-              `${PHASE_LABEL[a.phase]} · ${a.tools} 次工具${isRunning && a.lastTool ? ` · ${a.lastTool}` : ''}`,
-              inner,
-            )}
-          </Text>
-        )}
-        {isTicketCard && (isRunning || isFailed) && (
-          <Text wrap="truncate-end">
-            <Text color={frame}>{bar(percent, barW)}</Text>
-            <Text dimColor> {String(percent).padStart(3)}% </Text>
-            {!isNarrow && <Text>{PHASE_LABEL[a.phase]}</Text>}
-          </Text>
-        )}
-        {isTicketCard && (isRunning || isFailed) && (
-          <Text dimColor wrap="truncate-end">
-            {clip(a.lastTool ?? '…', inner)}
-          </Text>
         )}
       </Box>
     )
