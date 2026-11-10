@@ -276,6 +276,17 @@ test('originOfArgs: a spec or design path anywhere implies its issues folder, an
   expect(markdownSource.originOfArgs('.scratch/feature')).toBe('.scratch/feature/issues')
 })
 
+test('changesTickets: only the GitHub source says an issue command changes the tickets', () => {
+  expect(markdownSource.changesTickets).toBeUndefined()
+  const changes = (c: string) => githubSource.changesTickets?.(c)
+  expect(changes('gh issue close 12')).toBe(true)
+  expect(changes('gh issue reopen 12')).toBe(true)
+  expect(changes('cd x && gh issue edit 12 --title y')).toBe(true)
+  expect(changes('gh issue view 12')).toBe(false)
+  expect(changes('gh issue comment 12 -b x')).toBe(false)
+  expect(changes('gh pr close 3')).toBe(false)
+})
+
 test('emptyText: names the folder', () => {
   expect(markdownSource.emptyText('.scratch/f/issues')).toBe('.scratch/f/issues 裡沒有讀到票檔')
 })

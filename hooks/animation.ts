@@ -2,6 +2,8 @@
 // pane is still. A frame is read off the clock, so nothing about it is kept.
 // No engine API here, so these can be tested without a mock.
 
+import { ACCENT } from './accent'
+
 const FRAME_MS = 120
 const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 // One pass of the feature bar's light over its filled cells, however many.
@@ -9,10 +11,12 @@ const SWEEP_MS = 2000
 // The light is a soft band: full at its middle, fading to the bar's own color
 // this many cells either side. Where it sits between two cells, both glow in part.
 const GLOW_REACH = 3
-// The bar's color as the default themes paint `claude`, and the light at its
-// brightest; a cell is tinted somewhere between the two.
-const GLOW_FROM = [215, 119, 87] as const
-const GLOW_TO = [255, 226, 208] as const
+// The bar's own color (the accent), and the light at its brightest; a cell is
+// tinted somewhere between the two.
+const channelsOf = (hex: string) => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16))
+const GLOW_FROM = channelsOf(ACCENT)
+const GLOW_PEAK = '#f3e8ff'
+const GLOW_TO = channelsOf(GLOW_PEAK)
 const GLOW_SHADES = 8
 
 /** The spinner's glyph at `now`: every card and ticket at work draws the same one. */

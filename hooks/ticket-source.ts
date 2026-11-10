@@ -57,6 +57,8 @@ export interface TicketSource {
   resolveRef?(env: SourceEnv, text: string): Promise<ResolveResult>
   /** The ticket the lead's shell command merges into the integration branch, if any; `feature` is the one loaded. */
   mergedTicket(command: string, feature?: Feature): string | undefined
+  /** Whether the lead's shell command changes the tickets themselves (a GitHub issue closed, reopened, edited), so they are read again once it succeeds. */
+  changesTickets?(command: string): boolean
   /** What the pane says when the feature at `origin` has no tickets. */
   emptyText(origin: string): string
 }

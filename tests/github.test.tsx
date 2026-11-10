@@ -42,6 +42,8 @@ type World = {
   all: unknown[]
   /** Closed ticket numbers. */
   closed: Set<number>
+  /** Set to make every tool call fail or be denied. */
+  toolOutcome?: 'error' | 'deny'
 }
 
 const issue = (number: number, title: string, body = '', extra: object = {}) => ({ number, title, body, state: 'open', ...extra })
@@ -106,7 +108,7 @@ function engine(on: (event: string, hook: (...args: any[]) => unknown) => unknow
   })
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `agent-${++n}` }))
-  on('tool.call', () => ({ result: {} }))
+  on('tool.call', () => (world.toolOutcome === 'deny' ? { deny: 'no' } : world.toolOutcome === 'error' ? { result: {}, isError: true } : { result: {} }))
   on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
   on('fs.read', (_: unknown, e: { path: string }) => {
     if (e.path.endsWith(TRACKER)) {
@@ -270,6 +272,52 @@ test('github: the lead merging a branch with the ticket number marks the ticket,
 
 // ------------------------------------------------------------ re-reading
 
+const ISSUE_COMMANDS = ['gh issue close 12', 'gh issue reopen 12 --comment back', 'gh issue edit 12 --add-label x', 'cd x && gh   issue close 12']
+const readsOf = (world: World) => world.gh.filter(e => e === 'issues/10').length
+
+for (const command of ISSUE_COMMANDS) {
+  test(`github: the lead's \`${command}\` reads the batch again once it succeeds`, WF, async ($, on) => {
+    const world = newWorld()
+    engine(on, world)
+    await start($)
+    await skill($, '#10')
+    const base = readsOf(world)
+    world.closed.add(12)
+    await $.tool.call({ tool: 'Bash', command } as never)
+    expect(readsOf(world)).toBe(base + 1)
+    const ui = await mount($)
+    expect(await has(ui, /✓12/)).toBe(true)
+    await ui.unmount()
+  })
+}
+
+test('github: other gh commands, and a failed or denied issue command, do not read again', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  const base = readsOf(world)
+  for (const command of ['gh issue view 12', 'gh issue comment 12 -b x', 'gh pr list']) await $.tool.call({ tool: 'Bash', command } as never)
+  expect(readsOf(world)).toBe(base)
+  world.toolOutcome = 'error'
+  await $.tool.call({ tool: 'Bash', command: 'gh issue close 12' } as never)
+  expect(readsOf(world)).toBe(base)
+  world.toolOutcome = 'deny'
+  await $.tool.call({ tool: 'Bash', command: 'gh issue close 12' } as never)
+  expect(readsOf(world)).toBe(base)
+})
+
+test('github: a subagent running an issue command does not read again', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#10')
+  await spawn($, '實作 #12', '第 12 張')
+  const base = readsOf(world)
+  await $.tool.call({ tool: 'Bash', command: 'gh issue close 12', agentId: 'agent-1' } as never)
+  expect(readsOf(world)).toBe(base)
+})
+
 test('github: a subagent finishing reads the tickets again, and a closed issue becomes resolved', WF, async ($, on) => {
   const world = newWorld()
   engine(on, world)
@@ -335,7 +383,7 @@ test('github: a spawn whose batch fails to load is an observing card, not a tick
   await ui.unmount()
 })
 
-test('github: a bare /swarm never calls gh, whether tickets are loaded or a load failed', WF, async ($, on) => {
+test('github: a bare /swarm reads a loaded batch again, and calls gh for nothing when none is loaded', WF, async ($, on) => {
   const world = newWorld()
   world.failure = { exitCode: 1, stderr: 'gh: HTTP 500 Server Error' }
   engine(on, world)
@@ -347,7 +395,7 @@ test('github: a bare /swarm never calls gh, whether tickets are loaded or a load
   await swarm($, '#10') // loads
   world.gh.length = 0
   await swarm($, '')
-  expect(world.gh).toEqual([])
+  expect(world.gh.filter(e => e === 'issues/10')).toHaveLength(1)
 })
 
 for (const failOn of [/sub_issues/, /blocked_by/, /^issues\/10$/]) {

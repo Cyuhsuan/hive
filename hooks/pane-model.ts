@@ -4,6 +4,7 @@
 
 import type { Feature, Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
 import { isLive } from './agent-phase'
+import { isDone } from './ticket-done'
 import type { Workflow } from './workflow'
 
 /** Completed cards a pane that only observes lists; the rest fold into one line. */
@@ -24,7 +25,8 @@ export type PaneModel = {
   ticketStates: TicketState[]
   /** Feature percent, 0 to 100. */
   featurePercent: number
-  resolvedCount: number
+  /** Tickets that are done: merged into the integration branch, or resolved on their face. */
+  doneCount: number
   stepCount: number
   currentStep: number
   isFeatureDone: boolean
@@ -54,23 +56,23 @@ function ticketStateOf(t: Ticket, ctx: TicketStateInput): TicketState {
   if (ctx.failedTicketNumbers.has(t.number)) return 'failed'
   const isBlocked = t.blockedBy.some(b => {
     const blocker = ctx.tickets.find(x => x.number === b)
-    return blocker ? blocker.status !== 'resolved' : false
+    return blocker ? !isDone(blocker, ctx.merged) : false
   })
   return isBlocked ? 'blocked' : 'ready'
 }
 
-/** Resolved tickets count whole; an open ticket counts by its ticked acceptance items. */
-function featurePercentOf(tickets: readonly Ticket[], resolved: number): number {
+/** Done tickets count whole; an open ticket counts by its ticked acceptance items. */
+function featurePercentOf(tickets: readonly Ticket[], merged: ReadonlySet<string>, doneCount: number): number {
   if (!tickets.length) return 0
   const openChecked = tickets
-    .filter(t => t.status !== 'resolved')
+    .filter(t => !isDone(t, merged))
     .reduce((n, t) => n + (t.checks ? t.checked / t.checks : 0), 0)
-  return Math.round(((resolved + openChecked) / tickets.length) * 100)
+  return Math.round(((doneCount + openChecked) / tickets.length) * 100)
 }
 
-/** The step of the first open ticket; the step count when every ticket is resolved. */
-function currentStepOf(tickets: readonly Ticket[], stepCount: number): number {
-  return tickets.find(t => t.status !== 'resolved')?.step ?? stepCount
+/** The step of the first ticket not done; the step count when every ticket is done. */
+function currentStepOf(tickets: readonly Ticket[], merged: ReadonlySet<string>, stepCount: number): number {
+  return tickets.find(t => !isDone(t, merged))?.step ?? stepCount
 }
 
 /**
@@ -103,9 +105,10 @@ export function paneModelOf(s: Swarm, isWorkflowView: boolean): PaneModel {
   // Under `none` a workflow screen left in the state is not drawn.
   const feature = isWorkflowView ? s.feature : undefined
   const tickets = feature?.tickets ?? []
-  const resolvedCount = tickets.filter(t => t.status === 'resolved').length
+  const merged = new Set(feature?.merged ?? [])
+  const doneCount = tickets.filter(t => isDone(t, merged)).length
   const ctx: TicketStateInput = {
-    merged: new Set(feature?.merged ?? []),
+    merged,
     liveTicketNumbers: new Set(live.map(a => a.ticketNumber).filter(Boolean)),
     failedTicketNumbers: new Set(failed.map(a => a.ticketNumber).filter(Boolean)),
     tickets,
@@ -118,11 +121,11 @@ export function paneModelOf(s: Swarm, isWorkflowView: boolean): PaneModel {
     feature,
     tickets,
     ticketStates: tickets.map(t => ticketStateOf(t, ctx)),
-    featurePercent: featurePercentOf(tickets, resolvedCount),
-    resolvedCount,
+    featurePercent: featurePercentOf(tickets, merged, doneCount),
+    doneCount,
     stepCount,
-    currentStep: currentStepOf(tickets, stepCount),
-    isFeatureDone: tickets.length > 0 && resolvedCount === tickets.length,
+    currentStep: currentStepOf(tickets, merged, stepCount),
+    isFeatureDone: tickets.length > 0 && doneCount === tickets.length,
     live,
     done,
     failed,
