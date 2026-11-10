@@ -370,7 +370,7 @@ test('mattpocock-skills: /swarm reset empties the record and returns to observin
   await ui.unmount()
 })
 
-test('a start skill typed while a ticket is being worked: the card stays, tied to no ticket, and the new batch draws that ticket as waiting', WF, async ($, on) => {
+test('a start skill typed while a ticket is being worked: the card stays, tied to no ticket, and the new feature draws that ticket as waiting', WF, async ($, on) => {
   const world = newWorld(LOCAL)
   engine(on, world)
   on('command.run', () => ({ text: 'ran' }))

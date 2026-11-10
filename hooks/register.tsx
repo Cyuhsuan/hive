@@ -25,8 +25,8 @@ async function openPane($: EngineInterface) {
   return $.ui.open({ id: PANE, title: TITLE })
 }
 
-/** The workflow begins (its start skill ran, from the lead or typed by the person): a new round, and the pane opens unless nothing could start. */
-async function begin($: EngineInterface, workflow: Workflow, skill: string, args: string) {
+/** The workflow begins (its start skill ran, from the lead or typed by the person): the panel starts the feature over, and the pane opens unless nothing could start. */
+async function beginAndOpen($: EngineInterface, workflow: Workflow, skill: string, args: string) {
   if (await beginWorkflow($, workflow, skill, args)) await openPane($)
 }
 
@@ -107,13 +107,13 @@ export const register: Register = (on, options) => {
 
   // The workflow begins: its start skill was invoked, by the lead through the Skill tool or typed by the person.
   on('tool.call', { tool: 'Skill' }, async ($, e, next) => {
-    if (e.agentId === undefined && workflow?.isStartSkill(e.skill)) await begin($, workflow, e.skill, e.args ?? '')
+    if (e.agentId === undefined && workflow?.isStartSkill(e.skill)) await beginAndOpen($, workflow, e.skill, e.args ?? '')
     return next(e)
   }).catch((_$, e, next) => next(e))
 
   // The command itself runs as always; the panel's part may not stop it.
   on('command.run', async ($, e, next) => {
-    if (workflow?.isStartSkill(e.command)) await begin($, workflow, e.command, e.args ?? '')
+    if (workflow?.isStartSkill(e.command)) await beginAndOpen($, workflow, e.command, e.args ?? '')
     return next(e)
   }).catch((_$, e, next) => next(e))
 

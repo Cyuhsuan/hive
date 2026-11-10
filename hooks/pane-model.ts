@@ -4,7 +4,7 @@
 
 import type { Feature, Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
 import { isLive } from './agent-phase'
-import { isDone } from './ticket-done'
+import { isDone, isEveryTicketDone } from './ticket-done'
 import type { Workflow } from './workflow'
 
 /** Completed cards a pane that only observes lists; the rest fold into one line. */
@@ -125,7 +125,7 @@ export function paneModelOf(s: Swarm, isWorkflowView: boolean): PaneModel {
     doneCount,
     stepCount,
     currentStep: currentStepOf(tickets, merged, stepCount),
-    isFeatureDone: tickets.length > 0 && doneCount === tickets.length,
+    isFeatureDone: tickets.length > 0 && isEveryTicketDone(tickets, merged),
     live,
     done,
     failed,

@@ -4,7 +4,7 @@ import type { Swarm } from '../types'
 import { isLive } from './agent-phase'
 import { EMPTY, log, readSwarm, updateSwarm } from './swarm-state'
 import { ticketName } from './ticket-source'
-import { isDone } from './ticket-done'
+import { isEveryTicketDone } from './ticket-done'
 import type { SourceEnv, TicketRef, TicketSource } from './ticket-source'
 import { sourceById } from './workflow'
 import type { SourceChoice, Workflow } from './workflow'
@@ -113,7 +113,7 @@ export async function loadFeature($: EngineInterface, source: TicketSource, orig
 
 /**
  * The workflow begins: its start skill was invoked, by the lead or typed by the
- * person. The panel starts a new round (the cards still running stay, no longer
+ * person. The panel starts the feature over (the cards still running stay, no longer
  * tied to a ticket), and loads the spec the arguments name. Says whether the
  * workflow screen is up; false too when the tracker names no usable source.
  */
@@ -174,17 +174,15 @@ export async function ticketOfPrompt($: EngineInterface, prompt: string, s: Swar
   const loaded = shown ? s.feature : undefined
   const sources = loaded ? [sourceById(loaded.sourceId, workflow)] : (workflow?.sources ?? [])
   let ref: TicketRef | undefined
-  for (const src of sources) ref ??= src.refOfText(prompt, s.feature)
-  // No batch on the screen, or the one on it is all done: the prompt's ticket may belong to another spec.
-  const isBatchDone = loaded !== undefined && loaded.tickets.every(t => isDone(t, new Set(loaded.merged)))
-  if (!ref && (!loaded || isBatchDone) && workflow?.sources.some(src => src.mayNameTicket?.(prompt))) {
-    ref = await resolveUnloaded($, workflow, prompt, now, s)
-    // the spec on the screen: nothing to switch to
-    if (loaded && ref?.origin === loaded.origin) return {}
-  }
+  for (const src of sources) ref ??= src.refOfText(prompt, loaded)
+  // Nothing on the screen, or the feature on it is all done: the prompt's ticket may belong to another
+  // spec, or be a ticket added to this one since it was read. (An empty feature has nothing left, so it counts.)
+  const isLookedUp = !ref && (!loaded || isEveryTicketDone(loaded.tickets, new Set(loaded.merged))) && workflow?.sources.some(src => src.mayNameTicket?.(prompt))
+  if (isLookedUp && workflow) ref = await resolveUnloaded($, workflow, prompt, now, s)
 
   if (!ref) return {}
-  if (shown && s.feature?.origin === ref.origin) return { ticket: ref.ticket, ticketNumber: ref.number }
+  // Found in the loaded feature: its card points at it. One looked up is read again, in case it is new.
+  if (!isLookedUp && loaded?.origin === ref.origin) return { ticket: ref.ticket, ticketNumber: ref.number }
   if (!workflow) return {}
   // A ticket pointed at: the ticket source setting is read afresh before any tickets are.
   const choice = await pickSource($, workflow)

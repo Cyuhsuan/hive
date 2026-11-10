@@ -65,7 +65,7 @@ function newWorld(): World {
   }
 }
 
-const PARENTS: Record<number, number> = { 11: 10, 12: 10, 13: 10, 21: 20 }
+const PARENTS: Record<number, number> = { 11: 10, 12: 10, 13: 10, 14: 10, 21: 20 }
 
 function gh(world: World, argv: readonly string[]) {
   if (world.failure) {
@@ -158,7 +158,7 @@ for (const [how, args] of [
   ['swarm', '#10'],
   ['swarm', SPEC_URL],
 ] as const) {
-  test(`github: /${how === 'skill' ? 'implement-spec' : 'swarm'} ${args} loads the batch`, WF, async ($, on) => {
+  test(`github: /${how === 'skill' ? 'implement-spec' : 'swarm'} ${args} loads the feature`, WF, async ($, on) => {
     const world = newWorld()
     engine(on, world)
     await start($)
@@ -517,7 +517,7 @@ test('local markdown tracker: nothing calls gh', WF, async ($, on) => {
   expect(world.gh).toEqual([])
 })
 
-// ------------------------------------------------------------ a new round
+// ------------------------------------------------------------ starting over
 
 const typed = ($: any, args: string) => $.command.run({ command: 'mattpocock-skills:implement-spec', args } as never)
 const finishAgent = ($: any, agentId: string) =>
@@ -536,7 +536,7 @@ test('github: the person typing the start skill resets like the lead calling it,
 
   const ui = await mount($)
   expect(await has(ui, /11 Schema/)).toBe(false) // the finished card is gone
-  expect(await has(ui, /Login feature/)).toBe(true) // the batch is loaded again
+  expect(await has(ui, /Login feature/)).toBe(true) // the feature is loaded again
   expect(await has(ui, /開始，等待派票/)).toBe(true)
   expect(await has(ui, /派出 ticket/)).toBe(false) // the log only has the start line
   await ui.unmount()
@@ -606,6 +606,7 @@ test('a card still running survives the reset, loses its ticket, and keeps updat
   await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'a', new_string: 'b', agentId: 'agent-1' } as never)
   await finishAgent($, 'agent-1')
   ui = await mount($)
+  expect(await has(ui, /1 次工具/)).toBe(true) // the call after the reset still updated the card
   expect(await has(ui, /完成/)).toBe(true)
   await ui.unmount()
 })
@@ -624,11 +625,11 @@ test('with no usable ticket source a typed start skill resets nothing', WF, asyn
   await ui.unmount()
 })
 
-// ------------------------------------------------------------ the next batch
+// ------------------------------------------------------------ the next feature
 
 const NEXT_PROMPT = '實作 #21 發票'
 
-test('github: the batch all done, a prompt pointing at another spec swaps the tickets and keeps cards and log', WF, async ($, on) => {
+test('github: the feature all done, a prompt pointing at another spec swaps the tickets and keeps cards and log', WF, async ($, on) => {
   const world = newWorld()
   world.closed = new Set([11, 12, 13])
   engine(on, world)
@@ -641,13 +642,13 @@ test('github: the batch all done, a prompt pointing at another spec swaps the ti
   const ui = await mount($)
   expect(await has(ui, /Billing feature/)).toBe(true)
   expect(await has(ui, /12 API/)).toBe(false) // the old tickets are gone
-  expect(await has(ui, /21 Invoice/)).toBe(true) // the triggering agent points at its ticket in the new batch
+  expect(await has(ui, /21 Invoice/)).toBe(true) // the triggering agent points at its ticket in the new feature
   expect(await has(ui, /第 12 張 · ticket-impl/)).toBe(false) // an older card keeps its (now unknown) ticket: not an observing card
   expect(await has(ui, /派出 ticket/)).toBe(true) // the log stays
   await ui.unmount()
 })
 
-test('github: a batch with tickets left is not left for another spec, and gh is not asked', WF, async ($, on) => {
+test('github: a feature with tickets left is not left for another spec, and gh is not asked', WF, async ($, on) => {
   const world = newWorld()
   engine(on, world)
   await start($)
@@ -661,14 +662,18 @@ test('github: a batch with tickets left is not left for another spec, and gh is 
   await ui.unmount()
 })
 
-test('github: the batch all done, a number that resolves to the same spec changes nothing', WF, async ($, on) => {
+test('github: the feature all done, a ticket added to the same spec since is read in and its card points at it', WF, async ($, on) => {
   const world = newWorld()
   world.closed = new Set([11, 12, 13])
   engine(on, world)
   await start($)
   await skill($, '#10')
-  await spawn($, '看 #99', '看 99')
+  world.sub.push(issue(14, 'Report', '- [ ] a'))
+  await spawn($, '實作 #14 報表', '第 14 張')
+  expect(world.gh).toContain('issues/14/parent')
   const ui = await mount($)
   expect(await has(ui, /Login feature/)).toBe(true)
+  expect(await has(ui, /14 Report/)).toBe(true) // the new ticket is on the panel
+  expect(await has(ui, /第 14 張 · ticket-impl/)).toBe(false) // and the card points at it
   await ui.unmount()
 })
