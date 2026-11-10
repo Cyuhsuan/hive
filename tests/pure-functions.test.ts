@@ -3,7 +3,10 @@ import { expect, test } from 'claude-code/testing'
 import type { AgentPhase, SwarmAgent } from '../types'
 import { phaseOfCall } from '../hooks/agent-phase'
 import { BEE_LAP_MS, beeLeft, returnAt, returnProgress, sweptBar } from '../hooks/animation'
-import { cardHeight, cardSpots, tallySpot } from '../hooks/bee-route'
+import {
+  BEE_COL_MIN, CARDS_TOP, LEAD_HINT, LEAD_TALLY_ROW, LEAD_TEXT_LEFT,
+  beeColOnCard, beeSpanOf, cardHeight, cardLines, cardSpots, leadTallyLine, tallySpot,
+} from '../hooks/bee-route'
 import { bar as barOf, cells, clip } from '../hooks/text-format'
 
 // The pane's pure functions on their own: no pane, no plugin, no mock.
@@ -179,24 +182,61 @@ test('cardHeight: a ticket card grows only while it works or has failed', () => 
   expect(cardHeight(false, false)).toBe(4)
 })
 
+test('cardLines: the card is drawn from the lines cardHeight counts', () => {
+  expect(cardLines(true, false)).toEqual({ hasStatus: false, hasProgress: false })
+  expect(cardLines(true, true)).toEqual({ hasStatus: false, hasProgress: true })
+  expect(cardLines(false, true)).toEqual({ hasStatus: true, hasProgress: false })
+  expect(cardLines(false, false)).toEqual({ hasStatus: true, hasProgress: false })
+})
+
 test('cardSpots puts the first row under the delegates line and each later row under the tallest card above it', () => {
   const spots = cardSpots([5, 3, 3, 4, 3], 2, 38)
-  expect(spots[0]).toEqual({ row: 5, col: 2 })
-  expect(spots[1]).toEqual({ row: 5, col: 41 })
+  expect(spots[0]).toEqual({ row: CARDS_TOP, col: 2 })
+  expect(spots[1]).toEqual({ row: CARDS_TOP, col: 41 })
   // the first row is as tall as its taller card (5)
-  expect(spots[2]).toEqual({ row: 10, col: 2 })
-  expect(spots[3]).toEqual({ row: 10, col: 41 })
-  expect(spots[4]).toEqual({ row: 14, col: 2 })
-  expect(cardSpots([3, 3], 1, 22).map(s => s.row)).toEqual([5, 8])
+  expect(spots[2]).toEqual({ row: CARDS_TOP + 5, col: 2 })
+  expect(spots[3]).toEqual({ row: CARDS_TOP + 5, col: 41 })
+  expect(spots[4]).toEqual({ row: CARDS_TOP + 9, col: 2 })
+  expect(cardSpots([3, 3], 1, 22).map(s => s.row)).toEqual([CARDS_TOP, CARDS_TOP + 3])
   expect(cardSpots([], 2, 38)).toEqual([])
+})
+
+test('beeColOnCard is the bee past the card corner, and beeSpanOf leaves it room for its two cells', () => {
+  expect(beeSpanOf(38)).toBe(34)
+  expect(beeColOnCard(0, 34)).toBe(BEE_COL_MIN)
+  expect(beeColOnCard(2000, 34)).toBe(BEE_COL_MIN + 34)
 })
 
 test('tallySpot lands on the bee of the tally, or where it will be', () => {
   // set at the left: after the lead frame and its padding, past "已派 2 · "
-  expect(tallySpot('已派 2 · 🐝 1', 76, false)).toEqual({ row: 2, col: 2 + cells('已派 2 · ') })
+  expect(tallySpot('已派 2 · 🐝 1', 76, false)).toEqual({ row: LEAD_TALLY_ROW, col: LEAD_TEXT_LEFT + cells('已派 2 · ') })
   // set at the right: the same offset, from where the right-set text begins
   const text = '已派 2 · 🐝 1 · 已 merge 0'
-  expect(tallySpot(text, 76, true)).toEqual({ row: 2, col: 2 + 76 - cells(text) + cells('已派 2 · ') })
+  expect(tallySpot(text, 76, true)).toEqual({ row: LEAD_TALLY_ROW, col: LEAD_TEXT_LEFT + 76 - cells(text) + cells('已派 2 · ') })
   // clipped before the bee: it lands on the last cells shown
   expect(tallySpot('已派 12 · 🐝 3 · 已 merge 10', 6, false).col).toBeLessThanOrEqual(2 + 6 - 2)
+})
+
+test('tallySpot at the right moves one cell left when the count grows a digit, 9 to 10', () => {
+  const at = (n: number) => tallySpot(`已派 12 · 🐝 ${n} · 已 merge 3`, 76, true).col
+  expect(at(10)).toBe(at(9) - 1)
+})
+
+test('leadTallyLine: the line is one row at any width, the hint only where it fits whole', () => {
+  const tally = '已派 1 · 🐝 1 · 已 merge 0'
+  // wide: the hint at the left, the tally at the right end of the line
+  expect(leadTallyLine(tally, 76, true)).toEqual({ shown: tally, isHintShown: true, left: 76 - cells(tally) })
+  // exactly the hint, a cell and the tally: still whole
+  const exact = cells(LEAD_HINT) + 1 + cells(tally)
+  expect(leadTallyLine(tally, exact, true).isHintShown).toBe(true)
+  // a cell short: the hint is left out and the tally is at the left, whole
+  expect(leadTallyLine(tally, exact - 1, true)).toEqual({ shown: tally, isHintShown: false, left: 0 })
+  // narrower than the tally: cut to the line, in no more than the line
+  for (let inner = 8; inner <= 90; inner++) {
+    const line = leadTallyLine(tally, inner, true)
+    expect(cells(line.shown) + (line.isHintShown ? cells(LEAD_HINT) + 1 : 0)).toBeLessThanOrEqual(inner)
+    expect(line.left + cells(line.shown)).toBeLessThanOrEqual(inner)
+  }
+  // no hint asked: never shown
+  expect(leadTallyLine(tally, 76, false)).toEqual({ shown: tally, isHintShown: false, left: 0 })
 })

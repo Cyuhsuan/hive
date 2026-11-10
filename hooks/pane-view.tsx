@@ -6,10 +6,13 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Swarm, SwarmAgent } from '../types'
 import { ACCENT } from './accent'
-import { BEE, beeLeft, returnAt, spinnerAt, sweptBar } from './animation'
-import { cardHeight, cardSpots, tallySpot } from './bee-route'
+import { BEE, returnAt, spinnerAt, sweptBar } from './animation'
+import {
+  BEE_COL_MIN, CARDS_LEFT, CARD_GAP, LEAD_HINT, LEAD_PAD_X,
+  beeColOnCard, beeSpanOf, cardHeight, cardLines, cardSpots, homeBeeCount, leadTallyLine, returningCards, tallySpot,
+} from './bee-route'
 import { PHASE_LABEL, PHASE_PERCENT, isLive } from './agent-phase'
-import { homeBeeCount, returningCards, workflowLine } from './pane-model'
+import { workflowLine } from './pane-model'
 import type { PaneModel } from './pane-model'
 import { bar, cells, clip, fmtClock, fmtDuration, shortModel } from './text-format'
 import { sourceById } from './workflow'
@@ -95,16 +98,16 @@ export function drawPane(
 
   // A card with a ticket is the workflow's; any other is the observing one.
   const isTicketCardOf = (a: SwarmAgent) => isWorkflowView && a.ticket !== undefined
-  // A ticket card spells out its progress only while it works or has failed.
-  const hasProgressOf = (a: SwarmAgent) => isTicketCardOf(a) && (isLive(a) || a.phase === 'failed')
+  // The lines a card has under its title; the card is drawn from them and the bee's route counts them.
+  const linesOf = (a: SwarmAgent) => cardLines(isTicketCardOf(a), isLive(a) || a.phase === 'failed')
 
-  const beeSpan = cardW - 4
+  const beeSpan = beeSpanOf(cardW)
 
   const card = (a: SwarmAgent) => {
     const isTicketCard = isTicketCardOf(a)
     const isRunning = isLive(a)
     const isFailed = a.phase === 'failed'
-    const hasProgress = hasProgressOf(a)
+    const { hasStatus, hasProgress } = linesOf(a)
     const frame = isFailed ? 'error' : a.phase === 'done' ? 'success' : 'warning'
     const dot = isFailed ? '✗' : a.phase === 'done' ? '✓' : liveGlyph
     const percent = PHASE_PERCENT[a.phase]
@@ -130,9 +133,9 @@ export function drawPane(
     // is laid over it from the Box around the two, after it, at that Box's top row.
     // A bee on its way home is no longer on the card: the hive Box carries it.
     const beeAt = !isAnimated
-      ? (isRunning ? 1 : undefined)
+      ? (isRunning ? BEE_COL_MIN : undefined)
       : isRunning
-        ? 1 + beeLeft(now, beeSpan)
+        ? beeColOnCard(now, beeSpan)
         : undefined
 
     return (
@@ -151,7 +154,7 @@ export function drawPane(
             </Text>
             <Text dimColor>{right}</Text>
           </Box>
-          {!isTicketCard && (
+          {hasStatus && (
             <Text dimColor wrap="truncate-end">
               {clip(
                 `${PHASE_LABEL[a.phase]} · ${a.tools} 次工具${isRunning && a.lastTool ? ` · ${a.lastTool}` : ''}`,
@@ -203,20 +206,22 @@ export function drawPane(
     isWorkflowView ? `已 merge ${model.mergedCount}` : '',
   ].filter(Boolean).join(' · ')
   const homeBees = homeBeeCount(model, now, isAnimated)
-  const leadTally = tallyOf(homeBees)
-  // The lead's tally sits at the right of its line when a hint stands at the left.
-  const isTallyAtRight = !isNarrow && isWorkflowView
+  // A workflow lead has a hint at the left of its tally line, and the tally at the right
+  // (where the hint does not fit whole, the hint is left out and the tally is at the left).
+  const isHinted = !isNarrow && isWorkflowView
+  const tallyLine = leadTallyLine(tallyOf(homeBees), boxInner, isHinted)
   // The bees on their way home, laid over the hive: from where each left its card's top
-  // edge to where the tally's bee is, or will be, once it lands.
+  // edge to where the tally's bee will be once it lands, as the tally reads then: the
+  // first to land is the next one counted, the next after it the one after.
   const cardSpot = cardSpots(
-    ordered.map(a => cardHeight(isTicketCardOf(a), hasProgressOf(a))),
+    ordered.map(a => cardHeight(isTicketCardOf(a), isLive(a) || a.phase === 'failed')),
     cols,
     cardW,
   )
-  const landing = tallySpot(tallyOf(Math.max(1, homeBees)), boxInner, isTallyAtRight)
-  const flyingBees = returningCards(model, now, isAnimated).map(a => {
+  const flyingBees = returningCards(model, now, isAnimated).map((a, landsNth) => {
     const spot = cardSpot[ordered.indexOf(a)]!
-    const from = { row: spot.row, col: spot.col + 1 + beeLeft(a.endedAt, beeSpan) }
+    const from = { row: spot.row, col: spot.col + beeColOnCard(a.endedAt, beeSpan) }
+    const landing = tallySpot(tallyOf(homeBees + landsNth + 1), boxInner, isHinted)
     return { id: a.id, at: returnAt(now, a.endedAt, from, landing) }
   })
   // Narrow, a log line names its ticket by number alone.
@@ -262,18 +267,18 @@ export function drawPane(
 
       {/* The lead, its delegates line and its cards in one Box, so a bee flying home is laid over all three, after them. */}
       <Box flexDirection="column">
-        <Box borderStyle="round" borderColor={ACCENT} paddingX={1} flexDirection="column">
+        <Box borderStyle="round" borderColor={ACCENT} paddingX={LEAD_PAD_X} flexDirection="column">
           <Text wrap="truncate-end">
             <Text bold color={ACCENT}>lead</Text>
             <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, boxInner - 4)}</Text>
           </Text>
           <Box justifyContent="space-between">
-            {isTallyAtRight && <Text dimColor>派票 → merge → review</Text>}
-            <Text>{clip(leadTally, boxInner)}</Text>
+            {tallyLine.isHintShown && <Text dimColor wrap="truncate-end">{LEAD_HINT}</Text>}
+            <Text wrap="truncate-end">{tallyLine.shown}</Text>
           </Box>
         </Box>
 
-        <Box paddingLeft={2}>
+        <Box paddingLeft={CARDS_LEFT}>
           <Text dimColor wrap="truncate-end">
             {s.agents.length === 0
               ? '│  (還沒派出任何子代理)'
@@ -282,7 +287,7 @@ export function drawPane(
         </Box>
 
         {s.agents.length > 0 && (
-          <Box flexDirection="row" flexWrap="wrap" columnGap={1} paddingLeft={2}>
+          <Box flexDirection="row" flexWrap="wrap" columnGap={CARD_GAP} paddingLeft={CARDS_LEFT}>
             {ordered.map(card)}
           </Box>
         )}

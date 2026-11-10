@@ -65,7 +65,9 @@ export const register: Register = (on, options) => {
       $.clock.every(REDRAW_MS, () => {
         void readSwarm($).then(async s => {
           const now = await $.clock.now()
-          if (!s.agents.some(a => isLive(a) || isReturning(a, now))) return
+          // A bee is redrawn past its landing too, two frames long, so the pane's last frame
+          // is the bee gone and the count one more, however the ticks fell, before it rests.
+          if (!s.agents.some(a => isLive(a) || isReturning(a, now - 2 * REDRAW_MS))) return
           const panes = await $.ui.panes()
           if (panes.some(pane => pane.id === PANE && pane.isShown && pane.isPlaced)) $.ui.invalidate('ui.render')
         }).catch(() => undefined)
