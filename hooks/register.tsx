@@ -1,8 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { AgentPhase, Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
-import { markdownSource, ticketName, toPosix } from './ticket-source'
+import type { Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
+import { spinnerAt, sweptBar } from './animation'
+import { PHASE_LABEL, PHASE_PERCENT, describeCall, isLive, phaseOfCall, whoOf } from './agent-phase'
+import { bar, cells, clip, fmtClock, fmtDuration, shortModel, shortType } from './text-format'
+import { markdownSource, ticketName } from './ticket-source'
 import type { SourceEnv, TicketRef, TicketSource } from './ticket-source'
 import { sourceById, workflowOf } from './workflow'
 import type { SourceChoice, Workflow } from './workflow'
@@ -18,22 +21,8 @@ const DONE_SHOWN = 5
 // few ticks (a source's `refreshSeconds`).
 const TICK_MS = 2000
 
-// Animation says a subagent is at work, and nothing else: with none live the
-// pane is still. A frame is read off the clock, so nothing about it is kept.
-const FRAME_MS = 120
-const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-// The pane is redrawn twice per spinner frame, so the feature bar's light glides.
+// The pane is redrawn twice per animation frame, so the feature bar's light glides.
 const REDRAW_MS = 60
-// One pass of the feature bar's light over its filled cells, however many.
-const SWEEP_MS = 2000
-// The light is a soft band: full at its middle, fading to the bar's own color
-// this many cells either side. Where it sits between two cells, both glow in part.
-const GLOW_REACH = 3
-// The bar's color as the default themes paint `claude`, and the light at its
-// brightest; a cell is tinted somewhere between the two.
-const GLOW_FROM = [215, 119, 87] as const
-const GLOW_TO = [255, 226, 208] as const
-const GLOW_SHADES = 8
 
 // The dock's width is the person's: dragged at the pane's edge, never set from
 // here. The engine seats a dock at 24 body columns at least.
@@ -44,161 +33,6 @@ const WIDTH_MIN = 24
 const swarm = atom({ plugin: 'implement-swarm', key: 'swarm' } as const, EMPTY, {
   shape: 'swarm-5',
 })
-
-// ---------------------------------------------------------------- helpers
-
-const PHASE_PERCENT: Record<AgentPhase, number> = {
-  spawned: 5,
-  reading: 20,
-  editing: 45,
-  testing: 65,
-  merging: 80,
-  committing: 92,
-  reviewing: 50,
-  done: 100,
-  failed: 100,
-}
-
-const PHASE_LABEL: Record<AgentPhase, string> = {
-  spawned: '啟動中',
-  reading: '讀碼',
-  editing: '改碼',
-  testing: '測試',
-  merging: 'merge',
-  committing: 'commit',
-  reviewing: '審查',
-  done: '完成',
-  failed: '失敗',
-}
-
-const TEST_RE = /\b(dotnet test|npm (run )?test|pnpm (run )?test|yarn test|vitest|jest|pytest|go test|cargo test|mvn test|gradle test)\b/
-const MERGE_RE = /\bgit (merge|rebase|pull)\b/
-const COMMIT_RE = /\bgit commit\b/
-function shortModel(model: string | undefined): string {
-  if (!model) return '?'
-  const m = model.match(/(fable|opus|sonnet|haiku)[-_ ]?(\d+(?:[-_.]\d+)?)?/i)
-  if (!m) return model.slice(0, 12)
-  const ver = m[2] ? ' ' + m[2].replace(/[-_]/g, '.') : ''
-  return m[1]!.toLowerCase() + ver
-}
-
-function shortType(type: string): string {
-  // Any agent type works: only a plugin's `name:` prefix is dropped.
-  return type.replace(/^.*:/, '')
-}
-
-function fmtDuration(ms: number): string {
-  const s = Math.max(0, Math.round(ms / 1000))
-  const m = Math.floor(s / 60)
-  const r = s % 60
-  return m > 0 ? `${m}m${String(r).padStart(2, '0')}s` : `${r}s`
-}
-
-function fmtClock(at: number): string {
-  const d = new Date(at)
-  return [d.getHours(), d.getMinutes(), d.getSeconds()]
-    .map(n => String(n).padStart(2, '0'))
-    .join(':')
-}
-
-// CJK and full-width characters take two cells; everything else one.
-const WIDE_RE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/
-
-function cells(text: string): number {
-  let n = 0
-  for (const ch of text) n += WIDE_RE.test(ch) ? 2 : 1
-  return n
-}
-
-/** Cuts `text` to `width` cells, an ellipsis in its last cell when it was cut. */
-function clip(text: string, width: number): string {
-  if (cells(text) <= width) return text
-  let out = ''
-  let used = 0
-  for (const ch of text) {
-    const w = WIDE_RE.test(ch) ? 2 : 1
-    if (used + w > Math.max(0, width - 1)) break
-    out += ch
-    used += w
-  }
-  return out + '…'
-}
-
-function bar(percent: number, width: number): string {
-  const filled = Math.round((Math.min(100, Math.max(0, percent)) / 100) * width)
-  return '█'.repeat(filled) + '░'.repeat(Math.max(0, width - filled))
-}
-
-/** The spinner's glyph at `now`: every card and ticket at work draws the same one. */
-function spinnerAt(now: number): string {
-  return SPINNER[Math.floor(now / FRAME_MS) % SPINNER.length]!
-}
-
-/** A stretch of bar cells drawn alike; `glow` is the tint of lit cells, absent for the bar's own color. */
-type BarRun = { text: string; glow?: string }
-
-/**
- * A bar whose filled cells a band of light crosses left to right, once every
- * SWEEP_MS: it rises at the left end, glides at a steady pace and fades out
- * past the filled cells' last one, never lighting an empty cell.
- */
-function sweptBar(percent: number, width: number, now: number): BarRun[] {
-  const filled = Math.round((Math.min(100, Math.max(0, percent)) / 100) * width)
-  // The band's middle, in cells: from wholly before the first cell to wholly after the last.
-  const middle = ((now % SWEEP_MS) / SWEEP_MS) * (filled + 2 * GLOW_REACH) - GLOW_REACH
-  const runs: BarRun[] = []
-  for (let i = 0; i < filled; i++) {
-    const near = Math.max(0, 1 - Math.abs(i + 0.5 - middle) / GLOW_REACH)
-    // Eased, so the band has a soft shoulder instead of a tent's point.
-    const shade = Math.round(near * near * (3 - 2 * near) * GLOW_SHADES)
-    const glow = shade === 0 ? undefined : tint(shade / GLOW_SHADES)
-    const last = runs[runs.length - 1]
-    if (last && last.glow === glow) last.text += '█'
-    else runs.push({ text: '█', glow })
-  }
-  if (width > filled) runs.push({ text: '░'.repeat(width - filled) })
-  return runs
-}
-
-function tint(amount: number): string {
-  return '#' + GLOW_FROM.map((from, i) => Math.round(from + (GLOW_TO[i]! - from) * amount).toString(16).padStart(2, '0')).join('')
-}
-
-function isLive(agent: SwarmAgent): boolean {
-  return agent.phase !== 'done' && agent.phase !== 'failed'
-}
-
-function phaseOfCall(agent: SwarmAgent, tool: string, args: Record<string, unknown>): AgentPhase {
-  if (agent.phase === 'done' || agent.phase === 'failed') return agent.phase
-  if (/review/i.test(agent.type)) return 'reviewing'
-  if (tool === 'Bash') {
-    const cmd = String(args['command'] ?? '')
-    if (COMMIT_RE.test(cmd)) return 'committing'
-    if (MERGE_RE.test(cmd)) return 'merging'
-    if (TEST_RE.test(cmd)) return 'testing'
-    return agent.phase === 'spawned' ? 'reading' : agent.phase
-  }
-  if (tool === 'Edit' || tool === 'Write' || tool === 'NotebookEdit') return 'editing'
-  if (/(edit|write|replace|insert)/i.test(tool.replace(/^mcp__[^_]+__/, ''))) return 'editing'
-  if (typeof args['code'] === 'string' && /\.edit\./.test(args['code'])) return 'editing'
-  return agent.phase === 'spawned' ? 'reading' : agent.phase
-}
-
-function describeCall(tool: string, args: Record<string, unknown>): string {
-  const name = tool.replace(/^mcp__[^_]+__/, '')
-  const path = args['file_path'] ?? args['path'] ?? args['notebook_path']
-  if (typeof path === 'string') return `${name} ${toPosix(path).split('/').slice(-2).join('/')}`
-  if (tool === 'Bash') return `$ ${String(args['command'] ?? '').replace(/\s+/g, ' ')}`
-  if (typeof args['pattern'] === 'string') return `${name} /${args['pattern']}/`
-  if (typeof args['skill'] === 'string') return `${name} ${args['skill']}`
-  if (typeof args['description'] === 'string') return `${name} ${args['description']}`
-  return name
-}
-
-function whoOf(agent: SwarmAgent | undefined): string {
-  if (!agent) return 'lead'
-  return agent.ticket ?? shortType(agent.type)
-}
 
 async function log($: EngineInterface, who: string, text: string) {
   const at = await $.clock.now()
