@@ -2,6 +2,7 @@
 // no bee still returning to the hive) the pane is still. A frame is read off the clock, so nothing about it is kept.
 // No engine API here, so these can be tested without a mock.
 
+import type { SwarmAgent } from '../types'
 import { ACCENT } from './accent'
 
 const FRAME_MS = 120
@@ -43,7 +44,7 @@ export function returnProgress(now: number, endedAt: number): number {
 }
 
 /** A subagent that finished, not failed, a moment ago: its bee is still on its way home. */
-export function isReturning(a: { phase: string; endedAt?: number }, now: number): boolean {
+export function isReturning<A extends Pick<SwarmAgent, 'phase' | 'endedAt'>>(a: A, now: number): a is A & { endedAt: number } {
   return a.phase === 'done' && a.endedAt !== undefined && returnProgress(now, a.endedAt) < 1
 }
 
