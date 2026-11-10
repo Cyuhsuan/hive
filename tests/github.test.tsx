@@ -712,6 +712,17 @@ test('github: no feature loaded yet, loading the first one keeps the ended cards
   expect(lastStatus(world)).toMatch(/swarm 1 跑 · 1 完/)
 })
 
+test('github: the start skill waiting for tickets, loading the first feature keeps the ended cards', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '') // the workflow screen is up with no feature on it
+  await spawn($, 'explore', '先探索', 'Explore')
+  await finishAgent($, 'agent-1')
+  await spawn($, '實作 #12', '第 12 張') // loads spec 10 for the first time
+  expect(lastStatus(world)).toMatch(/swarm 1 跑 · 1 完/)
+})
+
 test('github: a load that fails leaves the ended cards', WF, async ($, on) => {
   const world = newWorld()
   world.closed = new Set([11, 12, 13])
