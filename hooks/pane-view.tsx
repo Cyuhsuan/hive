@@ -182,9 +182,9 @@ export function drawPane(
   return (
     <Box flexDirection="column" width={W}>
       <Box justifyContent="space-between">
-        <Text bold color={ACCENT}>{isNarrow || !isWorkflowView ? 'SWARM' : 'IMPLEMENT SWARM'}</Text>
+        <Text bold color={ACCENT}>HIVE</Text>
         <Text color={failed.length ? 'error' : undefined} dimColor={!failed.length}>
-          {clip(summary, Math.max(6, W - (isNarrow ? 7 : 17)))}
+          {clip(summary, Math.max(6, W - 6))}
         </Text>
       </Box>
 

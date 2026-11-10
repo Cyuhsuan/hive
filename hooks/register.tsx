@@ -102,7 +102,7 @@ export const register: Register = (on, options) => {
 
     const s = await readSwarm($)
     const line = workflow ? ` ${workflowLine(workflow, s)}` : ''
-    return { text: `Implement swarm pane opened.${line}` }
+    return { text: `Hive pane opened.${line}` }
   })
 
   // The workflow begins: its start skill was invoked, by the lead through the Skill tool or typed by the person.

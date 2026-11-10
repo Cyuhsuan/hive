@@ -17,10 +17,10 @@ const frameAt = (now: number) => SPINNER[Math.floor(now / FRAME_MS) % SPINNER.le
 const dotOf = (glyph: string) => `"${glyph}"," "`
 
 const PANE = {
-  plugin: 'implement-swarm',
+  plugin: 'hive',
   component: 'Pane',
-  requestId: 'implement-swarm',
-  props: { title: 'Implement swarm', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 80 }, view: {} },
+  requestId: 'hive',
+  props: { title: 'Hive', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 80 }, view: {} },
 } as const
 
 // Two tickets of four acceptance items: one resolved, so the bar is half full.
@@ -41,7 +41,7 @@ function engine(on: On, world: World = { invalidations: 0, isShown: true }) {
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.status', () => ({ value: undefined }))
   on('ui.panes', () => ({
-    value: [{ id: 'implement-swarm', title: 'Implement swarm', isShown: world.isShown, isFocused: false, isPlaced: true }],
+    value: [{ id: 'hive', title: 'Hive', isShown: world.isShown, isFocused: false, isPlaced: true }],
   }))
   on('ui.invalidate', () => {
     world.invalidations += 1

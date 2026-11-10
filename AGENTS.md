@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues live in this repo's GitHub Issues (`Cyuhsuan/implement-swarm`), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in this repo's GitHub Issues (`Cyuhsuan/hive`), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

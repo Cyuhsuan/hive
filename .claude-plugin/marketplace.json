@@ -1,5 +1,5 @@
 {
-  "name": "implement-swarm",
+  "name": "hive",
   "owner": { "name": "Cyuhsuan" },
-  "plugins": [{ "name": "implement-swarm", "source": "./" }]
+  "plugins": [{ "name": "hive", "source": "./" }]
 }

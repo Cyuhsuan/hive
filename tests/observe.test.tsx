@@ -5,11 +5,11 @@ const NONE = { options: { workflow: 'none' } }
 const TRACKER = 'docs/agents/issue-tracker.md'
 
 const PANE = {
-  plugin: 'implement-swarm',
+  plugin: 'hive',
   component: 'Pane',
-  requestId: 'implement-swarm',
+  requestId: 'hive',
   props: {
-    title: 'Implement swarm',
+    title: 'Hive',
     isFocused: false,
     bodyColumns: 80,
     placement: 'dock',

@@ -11,11 +11,11 @@ const GITHUB = '# Issue tracker: GitHub\n\nUse gh.\n'
 const LOCAL = '# Issue tracker: Local Markdown\n'
 
 const PANE = {
-  plugin: 'implement-swarm',
+  plugin: 'hive',
   component: 'Pane',
-  requestId: 'implement-swarm',
+  requestId: 'hive',
   props: {
-    title: 'Implement swarm',
+    title: 'Hive',
     isFocused: false,
     bodyColumns: 80,
     placement: 'dock',
@@ -174,7 +174,7 @@ test('github: /implement-spec with a spec issue number opens the pane with its s
   await ui.unmount()
 })
 
-const SPEC_URL = 'https://github.com/Cyuhsuan/implement-swarm/issues/10'
+const SPEC_URL = 'https://github.com/Cyuhsuan/hive/issues/10'
 for (const [how, args] of [
   ['skill', '10'],
   ['skill', SPEC_URL],
@@ -237,7 +237,7 @@ test('github: no feature yet, a prompt with a ticket URL loads the batch from it
   const world = newWorld()
   engine(on, world)
   await start($)
-  await spawn($, '實作 https://github.com/Cyuhsuan/implement-swarm/issues/12 ，整合分支 feat/x', '第 12 張')
+  await spawn($, '實作 https://github.com/Cyuhsuan/hive/issues/12 ，整合分支 feat/x', '第 12 張')
   expect(world.opens).toBe(1)
   const ui = await mount($)
   expect(await has(ui, /feature/)).toBe(true)
@@ -393,7 +393,6 @@ for (const [name, failure, line] of FAILURES) {
     expect(await has(ui, line)).toBe(true)
     expect(await has(ui, /session log/)).toBe(true)
     // the screen is the observing one: the status line is all that is added
-    expect(await has(ui, /IMPLEMENT SWARM/)).toBe(false)
     expect(await has(ui, /派票 → merge → review/)).toBe(false)
     await ui.unmount()
   })
@@ -406,7 +405,7 @@ test('github: a spawn whose batch fails to load is an observing card, not a tick
   await start($)
   await spawn($, '實作 #12', '第 12 張')
   const ui = await mount($)
-  expect(await has(ui, /IMPLEMENT SWARM/)).toBe(false)
+  expect(await has(ui, /feature/)).toBe(false)
   expect(await has(ui, /票來源 GitHub（`gh` 呼叫失敗/)).toBe(true)
   await ui.unmount()
 })
@@ -515,7 +514,6 @@ test('an empty tracker file is not a local one: only observing, and the status l
   const ui = await mount($)
   expect(await has(ui, /票來源 無法辨識/)).toBe(true)
   expect(await has(ui, /feature/)).toBe(false)
-  expect(await has(ui, /IMPLEMENT SWARM/)).toBe(false)
   await ui.unmount()
 })
 
@@ -593,7 +591,7 @@ test('a command that is not a start skill does not reset', WF, async ($, on) => 
   await skill($, '#10')
   await spawn($, '實作 #12', '第 12 張')
   await $.command.run({ command: 'compact', args: '' } as never)
-  await $.command.run({ command: 'implement-swarm', args: '#10' } as never)
+  await $.command.run({ command: 'hive', args: '#10' } as never)
   const ui = await mount($)
   expect(await has(ui, /12 API/)).toBe(true)
   expect(await has(ui, /派出 ticket/)).toBe(true)

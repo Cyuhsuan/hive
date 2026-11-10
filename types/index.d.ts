@@ -89,6 +89,6 @@ export type Swarm = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'implement-swarm': { swarm: Shaped<Swarm> }
+    hive: { swarm: Shaped<Swarm> }
   }
 }

@@ -6,14 +6,14 @@ import { isLive } from './agent-phase'
 import { isDone } from './ticket-done'
 import type { Workflow } from './workflow'
 
-export const PANE = 'implement-swarm'
-export const TITLE = 'Implement swarm'
+export const PANE = 'hive'
+export const TITLE = 'Hive'
 
 export const EMPTY: Swarm = { mode: 'observe', agents: [], log: [] }
 
 // Bump the tag when Swarm's fields change: an earlier version's value
 // outlives a reload and is then read as EMPTY instead of crashing the pane.
-const swarm = atom({ plugin: 'implement-swarm', key: 'swarm' } as const, EMPTY, {
+const swarm = atom({ plugin: 'hive', key: 'swarm' } as const, EMPTY, {
   shape: 'swarm-5',
 })
 

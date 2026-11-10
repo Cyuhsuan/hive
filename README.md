@@ -1,4 +1,4 @@
-# implement-swarm
+# hive
 
 一個面板，貼在對話旁邊，即時呈現 session 裡的子代理在做什麼；選用工作流後，還會畫出票、時間步與整體進度。
 
@@ -13,7 +13,7 @@
 在終端機 session 的提示列輸入：
 
 ```
-/plugin install implement-swarm --marketplace Cyuhsuan/implement-swarm
+/plugin install hive --marketplace Cyuhsuan/hive
 ```
 
 接著按 `y` 加入 marketplace，再選安裝範圍（預設是 user）。
@@ -21,10 +21,10 @@
 也可以從 shell 安裝：
 
 ```bash
-claude plugin install implement-swarm --marketplace Cyuhsuan/implement-swarm
+claude plugin install hive --marketplace Cyuhsuan/hive
 ```
 
-桌面 app 不能執行 `/plugin`：點提示框旁的 +，選 Plugins，用 `Cyuhsuan/implement-swarm` 加入 marketplace，再加入 plugin。
+桌面 app 不能執行 `/plugin`：點提示框旁的 +，選 Plugins，用 `Cyuhsuan/hive` 加入 marketplace，再加入 plugin。
 
 ### 相依
 

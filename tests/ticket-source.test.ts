@@ -131,7 +131,7 @@ test('workflow: the tracker file title picks the ticket source', async () => {
 test('workflow: the start skill, the setting and the source of a loaded feature', () => {
   expect(mattpocockSkills.isStartSkill('mattpocock-skills:implement-spec')).toBe(true)
   expect(mattpocockSkills.isStartSkill('implement-spec')).toBe(true)
-  expect(mattpocockSkills.isStartSkill('implement-swarm')).toBe(false)
+  expect(mattpocockSkills.isStartSkill('hive')).toBe(false)
   expect(workflowOf('mattpocock-skills')).toBe(mattpocockSkills)
   expect(workflowOf('none')).toBeUndefined()
   expect(workflowOf(undefined)).toBeUndefined()

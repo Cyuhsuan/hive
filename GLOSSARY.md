@@ -1,4 +1,4 @@
-# implement-swarm
+# hive
 
 A pane beside the chat that shows what the session's subagents are doing, and, when the work follows a workflow, how far its tickets have come.
 

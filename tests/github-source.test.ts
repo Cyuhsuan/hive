@@ -137,7 +137,7 @@ test('originOfArgs: every #N, bare number and issue URL in order, kept for load 
   expect(o('#12')).toBe('args:12')
   expect(o('12')).toBe('args:12')
   expect(o(' 12 ')).toBe('args:12')
-  expect(o('https://github.com/Cyuhsuan/implement-swarm/issues/12')).toBe('args:12')
+  expect(o('https://github.com/Cyuhsuan/hive/issues/12')).toBe('args:12')
   expect(o('look at #7 please')).toBe('args:7')
   expect(o('#7 https://github.com/o/r/issues/5 and #7, #9')).toBe('args:7,5,9')
   expect(o('11 14')).toBe('args:11,14')

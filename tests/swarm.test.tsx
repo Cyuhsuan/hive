@@ -3,11 +3,11 @@ import { expect, mock, test } from 'claude-code/testing'
 const WF = { options: { workflow: 'mattpocock-skills' } }
 
 const PANE = {
-  plugin: 'implement-swarm',
+  plugin: 'hive',
   component: 'Pane',
-  requestId: 'implement-swarm',
+  requestId: 'hive',
   props: {
-    title: 'Implement swarm',
+    title: 'Hive',
     isFocused: false,
     bodyColumns: 80,
     placement: 'dock',

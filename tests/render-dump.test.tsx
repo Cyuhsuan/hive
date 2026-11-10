@@ -5,10 +5,10 @@ declare const console: { log: (...a: unknown[]) => void }
 const WF = { options: { workflow: 'mattpocock-skills' } }
 
 const PANE = {
-  plugin: 'implement-swarm',
+  plugin: 'hive',
   component: 'Pane',
-  requestId: 'implement-swarm',
-  props: { title: 'Implement swarm', isFocused: false, bodyColumns: 84, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+  requestId: 'hive',
+  props: { title: 'Hive', isFocused: false, bodyColumns: 84, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
 test('dump the pane with three agents in flight', WF, async ($, on) => {
