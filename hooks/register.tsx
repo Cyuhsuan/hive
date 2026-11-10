@@ -85,12 +85,12 @@ export const register: Register = (on, options) => {
         if (choice?.source) {
           const origin = choice.source.originOfCommand(args)
           if (origin === undefined) await reportFailure($, choice.source, undefined, '要帶 spec issue 的編號或網址')
-          else await openFeature($, choice.source, origin, false)
+          else await openFeature($, choice.source, origin, workflow, false)
         }
       } else {
         // The one thing `none` still does: the folder the person names.
         const folder = markdownSource.originOfCommand(args)
-        if (folder !== undefined) await openFeature($, markdownSource, folder, true)
+        if (folder !== undefined) await openFeature($, markdownSource, folder, workflow, true)
       }
     } else {
       // Opening the pane reads the setting, and the tickets only when a batch is already loaded.
@@ -147,7 +147,7 @@ export const register: Register = (on, options) => {
       agents: [...s.agents.filter(a => a.id !== agent.id), agent],
     }))
     await log($, whoOf(agent), `派出 ${shortType(agent.type)} · ${shortModel(agent.model)}${agent.isBackground ? ' · 背景' : ''}`)
-    if (load && (await loadFeature($, load.source, load.origin))) {
+    if (load && (await loadFeature($, load.source, load.origin, workflow))) {
       await enterWorkflow($, false)
       if (!shown) await openPane($)
     }
