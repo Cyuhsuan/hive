@@ -27,6 +27,8 @@ export function spinnerAt(now: number): string {
 
 /** The bee: two cells wide. */
 export const BEE = '🐝'
+/** The hive: the mark on the lead's frame, where the bees come home to. One cell wide. */
+export const HIVE = '⬢'
 /** One lap of a bee along the top of its card: out to the far end and back. */
 export const BEE_LAP_MS = 4000
 /** How long a finished subagent's bee takes to leave its card. */

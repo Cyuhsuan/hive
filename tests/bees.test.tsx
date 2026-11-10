@@ -243,6 +243,22 @@ test('narrow, the bee flies and the count shows, and nothing is pushed out of th
   }
 })
 
+test('the lead frame carries the hive, with no subagent yet and at every width', ON, async ($, on) => {
+  engine(on)
+  await start($)
+
+  for (const columns of [24, 56, 84]) {
+    const tree = await drawn($, columns)
+    const title = find(tree, n => n.type === 'Text' && text(n).includes('⬢') && text(n).includes('lead'))[0]!
+    expect(title).toBeDefined()
+    // the hive comes before the word, and the line still fits the lead's frame
+    const line = text(title)
+    expect(line.indexOf('⬢')).toBeLessThan(line.indexOf('lead'))
+    const shown = find(title, n => n.type === 'Text' && n !== title).map(n => String(n.children?.[0] ?? '')).join('')
+    expect(cells(shown)).toBeLessThanOrEqual(columns - 4)
+  }
+})
+
 // ------------------------------------------------------------ the setting
 
 test('animation off: the bee waits still on a live card, none after the finish, the count stays', OFF, async ($, on) => {

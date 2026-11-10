@@ -6,7 +6,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Swarm, SwarmAgent } from '../types'
 import { ACCENT } from './accent'
-import { BEE, beeLeft, isReturning, returnLeft, spinnerAt, sweptBar } from './animation'
+import { BEE, HIVE, beeLeft, isReturning, returnLeft, spinnerAt, sweptBar } from './animation'
 import { PHASE_LABEL, PHASE_PERCENT, isLive } from './agent-phase'
 import { workflowLine } from './pane-model'
 import type { PaneModel } from './pane-model'
@@ -239,8 +239,9 @@ export function drawPane(
 
       <Box borderStyle="round" borderColor={ACCENT} paddingX={1} flexDirection="column">
         <Text wrap="truncate-end">
+          <Text color="warning">{HIVE} </Text>
           <Text bold color={ACCENT}>lead</Text>
-          <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, boxInner - 4)}</Text>
+          <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, boxInner - 6)}</Text>
         </Text>
         <Box justifyContent="space-between">
           {!isNarrow && isWorkflowView && <Text dimColor>派票 → merge → review</Text>}
