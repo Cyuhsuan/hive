@@ -90,17 +90,31 @@ const GITHUB_ID = 'github'
 
 // A feature's origin: `10` is the spec issue #10. `standalone:30,31` is the
 // tickets that have no spec, of one piece of work. `args:30,31` is only what a
-// skill's arguments named: `load` sorts it into one of the other two.
+// skill's arguments named: `load` sorts it into one of the other two. This is
+// the one place that knows the shapes.
 const STANDALONE_PREFIX = 'standalone:'
 const ARGS_PREFIX = 'args:'
 const STANDALONE_NAME = '獨立票'
 
-const numbersOfOrigin = (origin: string, prefix: string): number[] =>
-  origin.slice(prefix.length).split(',').filter(n => n !== '').map(Number)
+type Origin = { kind: 'spec'; number: number } | { kind: 'standalone'; numbers: number[] } | { kind: 'args'; numbers: number[] }
 
-const standaloneOrigin = (numbers: readonly number[]): string => `${STANDALONE_PREFIX}${Array.from(new Set(numbers)).join(',')}`
+const numbersAfter = (origin: string, prefix: string): number[] => origin.slice(prefix.length).split(',').filter(n => n !== '').map(Number)
 
-/** The tickets of `issues` as one batch: their blockers (inside the batch only) and time-steps. */
+function parseOrigin(origin: string): Origin {
+  if (origin.startsWith(ARGS_PREFIX)) return { kind: 'args', numbers: numbersAfter(origin, ARGS_PREFIX) }
+  if (origin.startsWith(STANDALONE_PREFIX)) return { kind: 'standalone', numbers: numbersAfter(origin, STANDALONE_PREFIX) }
+  return { kind: 'spec', number: Number(origin) }
+}
+
+function originOf(origin: Origin): string {
+  if (origin.kind === 'spec') return String(origin.number)
+  const prefix = origin.kind === 'args' ? ARGS_PREFIX : STANDALONE_PREFIX
+  return `${prefix}${Array.from(new Set(origin.numbers)).join(',')}`
+}
+
+const standaloneOrigin = (...numbers: number[]): string => originOf({ kind: 'standalone', numbers })
+
+/** The tickets of `issues` as one feature: their blockers (inside the feature only) and time-steps. */
 async function ticketsOf(env: SourceEnv, issues: readonly GhIssue[]): Promise<Gh<Ticket[]>> {
   const inBatch = new Set(issues.map(c => c.number))
   // GitHub's own blocked-by relation first; the body's section when it has none.
@@ -124,54 +138,46 @@ async function ticketsOf(env: SourceEnv, issues: readonly GhIssue[]): Promise<Gh
   return { ok: true, data: assignSteps(tickets) }
 }
 
-async function loadSpec(env: SourceEnv, specNumber: number): Promise<LoadResult> {
-  const spec = await gh<GhIssue>(env, ['api', `${REPO}/issues/${specNumber}`])
-  if (!spec.ok) return spec
-
+/** The issues that are part of spec `n`: its sub-issues, else the ones whose body says so. `listAll` reads every issue, for a caller that asks about many. */
+async function childrenOf(env: SourceEnv, n: number, listAll: () => Promise<Gh<GhIssue[]>> = () => ghList<GhIssue>(env, `${REPO}/issues?state=all&per_page=100`)): Promise<Gh<GhIssue[]>> {
   // A failing call fails the whole load; only an empty answer falls back.
-  const subs = await ghList<GhIssue>(env, `${REPO}/issues/${specNumber}/sub_issues?per_page=100`)
-  if (!subs.ok) return subs
-  let children = subs.data
-  if (children.length === 0) {
-    // No sub-issues: the issues that say they are part of the spec.
-    const all = await ghList<GhIssue>(env, `${REPO}/issues?state=all&per_page=100`)
-    if (!all.ok) return all
-    children = all.data.filter(i => i.pull_request === undefined && i.number !== specNumber && parentOfBody(i.body ?? '') === specNumber)
-  }
-
-  const tickets = await ticketsOf(env, children)
-  if (!tickets.ok) return tickets
-  const feature: Feature = {
-    sourceId: GITHUB_ID,
-    origin: String(specNumber),
-    name: spec.data.title ?? `#${specNumber}`,
-    tickets: tickets.data,
-    merged: [],
-    loadedAt: await env.now(),
-  }
-  return { ok: true, feature }
+  const subs = await ghList<GhIssue>(env, `${REPO}/issues/${n}/sub_issues?per_page=100`)
+  if (!subs.ok || subs.data.length > 0) return subs
+  // No sub-issues: the issues that say they are part of the spec.
+  const all = await listAll()
+  if (!all.ok) return all
+  return { ok: true, data: all.data.filter(i => i.pull_request === undefined && i.number !== n && parentOfBody(i.body ?? '') === n) }
 }
 
-/** The standalone batch of `issues`, already read. */
-async function standaloneBatch(env: SourceEnv, issues: readonly GhIssue[]): Promise<LoadResult> {
+/** A feature of `issues`, already read. */
+async function featureOf(env: SourceEnv, origin: string, name: string, issues: readonly GhIssue[]): Promise<LoadResult> {
   const tickets = await ticketsOf(env, issues)
   if (!tickets.ok) return tickets
-  const feature: Feature = {
-    sourceId: GITHUB_ID,
-    origin: standaloneOrigin(issues.map(i => i.number)),
-    name: STANDALONE_NAME,
-    tickets: tickets.data,
-    merged: [],
-    loadedAt: await env.now(),
-  }
-  return { ok: true, feature }
+  return { ok: true, feature: { sourceId: GITHUB_ID, origin, name, tickets: tickets.data, merged: [], loadedAt: await env.now() } }
 }
+
+/** The feature of spec `specNumber`; `children` when the caller already asked for them. */
+async function loadSpec(env: SourceEnv, specNumber: number, children?: readonly GhIssue[]): Promise<LoadResult> {
+  const spec = await gh<GhIssue>(env, ['api', `${REPO}/issues/${specNumber}`])
+  if (!spec.ok) return spec
+  let issues = children
+  if (!issues) {
+    const found = await childrenOf(env, specNumber)
+    if (!found.ok) return found
+    issues = found.data
+  }
+  return featureOf(env, originOf({ kind: 'spec', number: specNumber }), spec.data.title ?? `#${specNumber}`, issues)
+}
+
+/** The feature of the standalone `issues`, already read. */
+const standaloneFeature = (env: SourceEnv, issues: readonly GhIssue[]): Promise<LoadResult> =>
+  featureOf(env, standaloneOrigin(...issues.map(i => i.number)), STANDALONE_NAME, issues)
 
 async function loadStandalone(env: SourceEnv, numbers: readonly number[]): Promise<LoadResult> {
   const issues = await Promise.all(numbers.map(n => gh<GhIssue>(env, ['api', `${REPO}/issues/${n}`])))
   const failed = issues.find(i => !i.ok)
   if (failed && !failed.ok) return failed
-  return standaloneBatch(env, issues.flatMap(i => (i.ok ? [i.data] : [])))
+  return standaloneFeature(env, issues.flatMap(i => (i.ok ? [i.data] : [])))
 }
 
 /**
@@ -189,13 +195,14 @@ async function parentOf(env: SourceEnv, n: number): Promise<Gh<{ parent?: number
 }
 
 /**
- * The batch the numbers a skill named make: the first spec among them (a ticket
+ * The feature the numbers a skill named make: the first spec among them (a ticket
  * of a spec stands for its spec), or else all of them as standalone tickets.
  * Numbers that are not there, or are pull requests, are left out.
  */
 async function loadNamed(env: SourceEnv, numbers: readonly number[]): Promise<LoadResult> {
   const standalones: GhIssue[] = []
-  let all: Gh<GhIssue[]> | undefined
+  let all: Promise<Gh<GhIssue[]>> | undefined
+  const listAll = () => (all ??= ghList<GhIssue>(env, `${REPO}/issues?state=all&per_page=100`))
   for (const n of numbers) {
     const found = await parentOf(env, n)
     if (!found.ok) {
@@ -205,19 +212,13 @@ async function loadNamed(env: SourceEnv, numbers: readonly number[]): Promise<Lo
     const { parent, issue } = found.data
     if (parent !== undefined) return loadSpec(env, parent)
     if (!issue || issue.pull_request !== undefined) continue
-    const subs = await ghList<GhIssue>(env, `${REPO}/issues/${n}/sub_issues?per_page=100`)
-    if (!subs.ok) return subs
-    let isSpec = subs.data.length > 0
-    if (!isSpec) {
-      all ??= await ghList<GhIssue>(env, `${REPO}/issues?state=all&per_page=100`)
-      if (!all.ok) return all
-      isSpec = all.data.some(i => i.pull_request === undefined && i.number !== n && parentOfBody(i.body ?? '') === n)
-    }
-    if (isSpec) return loadSpec(env, n)
+    const children = await childrenOf(env, n, listAll)
+    if (!children.ok) return children
+    if (children.data.length > 0) return loadSpec(env, n, children.data)
     standalones.push(issue)
   }
   if (standalones.length === 0) return { ok: false, reason: `讀不到票：${numbers.map(n => `#${n}`).join('、')} 不存在或是 PR` }
-  return standaloneBatch(env, standalones)
+  return standaloneFeature(env, standalones)
 }
 
 /** Every issue a skill's arguments name, in the order they appear: a URL, `#N`, or numbers alone. */
@@ -233,18 +234,22 @@ export const githubSource: TicketSource = {
   refreshSeconds: 30,
 
   async load(env, origin): Promise<LoadResult> {
-    if (origin.startsWith(ARGS_PREFIX)) return loadNamed(env, numbersOfOrigin(origin, ARGS_PREFIX))
-    if (origin.startsWith(STANDALONE_PREFIX)) return loadStandalone(env, numbersOfOrigin(origin, STANDALONE_PREFIX))
-    return loadSpec(env, Number(origin))
+    const parsed = parseOrigin(origin)
+    if (parsed.kind === 'args') return loadNamed(env, parsed.numbers)
+    if (parsed.kind === 'standalone') return loadStandalone(env, parsed.numbers)
+    return loadSpec(env, parsed.number)
   },
 
-  isStandalone: origin => origin.startsWith(STANDALONE_PREFIX),
+  isStandalone: origin => parseOrigin(origin).kind === 'standalone',
 
-  addToStandalone: (origin, ticket) => standaloneOrigin([...numbersOfOrigin(origin, STANDALONE_PREFIX), Number(ticket)]),
+  joinStandalone(a, b) {
+    const [first, second] = [parseOrigin(a), parseOrigin(b)]
+    return first.kind === 'standalone' && second.kind === 'standalone' ? standaloneOrigin(...first.numbers, ...second.numbers) : b
+  },
 
   originOfArgs(args) {
     const numbers = numbersOfArgs(args)
-    return numbers.length === 0 ? undefined : `${ARGS_PREFIX}${numbers.join(',')}`
+    return numbers.length === 0 ? undefined : originOf({ kind: 'args', numbers })
   },
 
   originOfCommand(args) {
@@ -270,11 +275,9 @@ export const githubSource: TicketSource = {
       }
       const { parent, issue } = found.data
       const ref = { ticket: String(n), number: String(n) }
-      if (parent !== undefined) return { ok: true, ref: { origin: String(parent), ...ref } }
+      if (parent !== undefined) return { ok: true, ref: { origin: originOf({ kind: 'spec', number: parent }), ...ref } }
       // No spec above it: an open issue (not a pull request) is a standalone ticket.
-      if (issue?.state === 'open' && issue.pull_request === undefined) {
-        return { ok: true, ref: { origin: standaloneOrigin([n]), ...ref, isStandalone: true } }
-      }
+      if (issue?.state === 'open' && issue.pull_request === undefined) return { ok: true, ref: { origin: standaloneOrigin(n), ...ref } }
     }
     return failure === undefined ? { ok: true } : { ok: false, reason: failure }
   },
@@ -288,5 +291,8 @@ export const githubSource: TicketSource = {
 
   changesTickets: command => /\bgh\s+issue\s+(?:close|reopen|edit)\b/.test(command),
 
-  emptyText: origin => (origin.startsWith(STANDALONE_PREFIX) ? '沒有讀到獨立票' : `#${origin} 底下沒有讀到票`),
+  emptyText(origin) {
+    const parsed = parseOrigin(origin)
+    return parsed.kind === 'spec' ? `#${parsed.number} 底下沒有讀到票` : '沒有讀到獨立票'
+  },
 }

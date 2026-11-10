@@ -48,6 +48,8 @@ type World = {
   pulls: Set<number>
   /** Set to make every tool call fail or be denied. */
   toolOutcome?: 'error' | 'deny'
+  /** Set to make the first `gh` call whose endpoint matches wait for `until`; the others are answered at once. */
+  hold?: { endpoint: RegExp; until: Promise<void>; isTaken?: boolean }
 }
 
 const issue = (number: number, title: string, body = '', extra: object = {}) => ({ number, title, body, state: 'open', ...extra })
@@ -133,7 +135,16 @@ function engine(on: (event: string, hook: (...args: any[]) => unknown) => unknow
     }
     throw new Error('ENOENT')
   })
-  on('process.run', (_: unknown, e: { argv: string[] }) => (r => ('deny' in r ? r : { value: r }))(gh(world, e.argv)))
+  on('process.run', async (_: unknown, e: { argv: string[] }) => {
+    const endpoint = (e.argv.find(a => a.startsWith('repos/')) ?? '').replace('repos/{owner}/{repo}/', '')
+    const hold = world.hold
+    if (hold && !hold.isTaken && hold.endpoint.test(endpoint)) {
+      hold.isTaken = true
+      await hold.until
+    }
+    const r = gh(world, e.argv)
+    return 'deny' in r ? r : { value: r }
+  })
   return clock
 }
 
@@ -696,7 +707,7 @@ test('github: the feature all done, a ticket added to the same spec since is rea
 // 30, 31 and 32 have no parent and no sub-issues; 31 is blocked by 30. 21 belongs to spec 20.
 // A ticket is a glyph and its number (`·31`); only the step under way also has its title.
 const ROW30 = /^\S30( |$)/
-const batch = async (ui: any) => ({
+const feature = async (ui: any) => ({
   isStandalone: await has(ui, /獨立票/),
   has30: await has(ui, ROW30),
   has31: await has(ui, /^\S31( |$)/),
@@ -707,25 +718,25 @@ for (const [how, run] of [
   ['the start skill', ($: any) => skill($, '#30')],
   ['/swarm', ($: any) => swarm($, '#30')],
 ] as const) {
-  test(`github standalone: ${how} naming an issue with no parent and no sub-issues draws the 獨立票 batch`, WF, async ($, on) => {
+  test(`github standalone: ${how} naming an issue with no parent and no sub-issues draws the 獨立票 feature`, WF, async ($, on) => {
     const world = newWorld()
     engine(on, world)
     await start($)
     await run($)
     const ui = await mount($)
-    expect(await batch(ui)).toEqual({ isStandalone: true, has30: true, has31: false, has32: false })
+    expect(await feature(ui)).toEqual({ isStandalone: true, has30: true, has31: false, has32: false })
     expect(await has(ui, /Login feature/)).toBe(false)
     await ui.unmount()
   })
 }
 
-test('github standalone: two standalone issues named are one batch', WF, async ($, on) => {
+test('github standalone: two standalone issues named are one feature', WF, async ($, on) => {
   const world = newWorld()
   engine(on, world)
   await start($)
   await skill($, '#30 and https://github.com/o/r/issues/31')
   const ui = await mount($)
-  expect(await batch(ui)).toEqual({ isStandalone: true, has30: true, has31: true, has32: false })
+  expect(await feature(ui)).toEqual({ isStandalone: true, has30: true, has31: true, has32: false })
   expect(await has(ui, /0\/2/)).toBe(true)
   await ui.unmount()
 })
@@ -762,7 +773,7 @@ test('github standalone: issues that do not exist or are pull requests are left 
   await start($)
   await swarm($, '#98 #30 #97')
   let ui = await mount($)
-  expect(await batch(ui)).toEqual({ isStandalone: true, has30: true, has31: false, has32: false })
+  expect(await feature(ui)).toEqual({ isStandalone: true, has30: true, has31: false, has32: false })
   await ui.unmount()
 
   await swarm($, 'reset')
@@ -773,7 +784,7 @@ test('github standalone: issues that do not exist or are pull requests are left 
   await ui.unmount()
 })
 
-test('github standalone: a failing gh draws no half batch and the status line says why', WF, async ($, on) => {
+test('github standalone: a failing gh draws no half feature and the status line says why', WF, async ($, on) => {
   const world = newWorld()
   world.failOn = /^issues\/31$/
   engine(on, world)
@@ -785,14 +796,14 @@ test('github standalone: a failing gh draws no half batch and the status line sa
   await ui.unmount()
 })
 
-test('github standalone: with no batch, a prompt naming an open standalone issue loads it and the card points at it', WF, async ($, on) => {
+test('github standalone: with no feature, a prompt naming an open standalone issue loads it and the card points at it', WF, async ($, on) => {
   const world = newWorld()
   engine(on, world)
   await start($)
   await spawn($, '實作 #30', '第 30 張')
   expect(world.opens).toBe(1)
   const ui = await mount($)
-  expect(await batch(ui)).toEqual({ isStandalone: true, has30: true, has31: false, has32: false })
+  expect(await feature(ui)).toEqual({ isStandalone: true, has30: true, has31: false, has32: false })
   expect(await has(ui, /第 30 張 · ticket-impl/)).toBe(false) // a ticket card, not an observing card
   expect(world.statuses.at(-1)).toMatch(/1 跑 · 0 完 · 票 0\/1/)
   await ui.unmount()
@@ -812,21 +823,21 @@ test('github standalone: a prompt naming a closed issue or a pull request with n
   await ui.unmount()
 })
 
-test('github standalone: a standalone batch not done takes another standalone ticket, cards and log stay', WF, async ($, on) => {
+test('github standalone: a standalone feature not done takes another standalone ticket, cards and log stay', WF, async ($, on) => {
   const world = newWorld()
   engine(on, world)
   await start($)
   await spawn($, '實作 #30', '第 30 張')
   await spawn($, '實作 #31', '第 31 張')
   const ui = await mount($)
-  expect(await batch(ui)).toEqual({ isStandalone: true, has30: true, has31: true, has32: false })
+  expect(await feature(ui)).toEqual({ isStandalone: true, has30: true, has31: true, has32: false })
   expect(world.statuses.at(-1)).toMatch(/2 跑 · 0 完 · 票 0\/2/) // both cards stay, both pointing at tickets
   expect(await has(ui, /第 3[01] 張 · ticket-impl/)).toBe(false)
   expect(await has(ui, /派出 ticket/)).toBe(true)
   await ui.unmount()
 })
 
-test('github standalone: a batch all done takes a new standalone ticket and is no longer done', WF, async ($, on) => {
+test('github standalone: a feature all done takes a new standalone ticket and is no longer done', WF, async ($, on) => {
   const world = newWorld()
   world.closed = new Set([11, 30])
   engine(on, world)
@@ -834,12 +845,12 @@ test('github standalone: a batch all done takes a new standalone ticket and is n
   await skill($, '#30')
   await spawn($, '實作 #32', '第 32 張')
   const ui = await mount($)
-  expect(await batch(ui)).toEqual({ isStandalone: true, has30: true, has31: false, has32: true })
+  expect(await feature(ui)).toEqual({ isStandalone: true, has30: true, has31: false, has32: true })
   expect(world.statuses.at(-1)).toMatch(/票 1\/2/)
   await ui.unmount()
 })
 
-test('github standalone: a standalone batch not done does not change for a spec ticket; all done it swaps to that spec', WF, async ($, on) => {
+test('github standalone: a standalone feature not done does not change for a spec ticket; all done it swaps to that spec', WF, async ($, on) => {
   const world = newWorld()
   engine(on, world)
   await start($)
@@ -860,7 +871,7 @@ test('github standalone: a standalone batch not done does not change for a spec 
   await ui.unmount()
 })
 
-test('github standalone: a spec batch not done is not asked about a standalone ticket; all done it swaps to the standalone batch', WF, async ($, on) => {
+test('github standalone: a spec feature not done is not asked about a standalone ticket; all done it swaps to the standalone feature', WF, async ($, on) => {
   const world = newWorld()
   engine(on, world)
   await start($)
@@ -876,12 +887,12 @@ test('github standalone: a spec batch not done is not asked about a standalone t
   await finishAgent($, 'agent-1') // the tickets are read again
   await spawn($, '實作 #30', '第 30 張，再一次')
   ui = await mount($)
-  expect(await batch(ui)).toEqual({ isStandalone: true, has30: true, has31: false, has32: false })
+  expect(await feature(ui)).toEqual({ isStandalone: true, has30: true, has31: false, has32: false })
   expect(await has(ui, /12 API/)).toBe(false)
   await ui.unmount()
 })
 
-test('github standalone: a closed standalone ticket and a merged branch update the batch like a spec batch', WF, async ($, on) => {
+test('github standalone: a closed standalone ticket and a merged branch update the feature like a spec feature', WF, async ($, on) => {
   const world = newWorld()
   engine(on, world)
   await start($)
@@ -899,7 +910,7 @@ test('github standalone: a closed standalone ticket and a merged branch update t
   await ui.unmount()
 })
 
-test('github standalone: a reset leaves no standalone batch, the next one starts fresh', WF, async ($, on) => {
+test('github standalone: a reset leaves no standalone feature, the next one starts fresh', WF, async ($, on) => {
   const world = newWorld()
   engine(on, world)
   await start($)
@@ -907,6 +918,62 @@ test('github standalone: a reset leaves no standalone batch, the next one starts
   await swarm($, 'reset')
   await spawn($, '實作 #31', '第 31 張')
   const ui = await mount($)
-  expect(await batch(ui)).toEqual({ isStandalone: true, has30: false, has31: true, has32: false })
+  expect(await feature(ui)).toEqual({ isStandalone: true, has30: false, has31: true, has32: false })
+  await ui.unmount()
+})
+
+test('github standalone: two spawns at once naming different standalone tickets leave both in the feature', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#30')
+  await Promise.all([spawn($, '實作 #31', '第 31 張'), spawn($, '實作 #32', '第 32 張')])
+  const ui = await mount($)
+  expect(await feature(ui)).toEqual({ isStandalone: true, has30: true, has31: true, has32: true })
+  await ui.unmount()
+})
+
+test('github standalone: a re-read that started before a spawn added a ticket does not take it out of the feature', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#30')
+  await spawn($, '實作 #30', '第 30 張')
+  let release!: () => void
+  world.hold = { endpoint: /^issues\/30\/dependencies/, until: new Promise<void>(r => (release = r)) }
+  const reread = finishAgent($, 'agent-1') // the tickets are read again, and that read waits
+  await spawn($, '實作 #31', '第 31 張')
+  release()
+  await reread
+  const ui = await mount($)
+  expect(await feature(ui)).toEqual({ isStandalone: true, has30: true, has31: true, has32: false })
+  await ui.unmount()
+})
+
+test('github standalone: /swarm naming a standalone issue joins the standalone feature; merged, cards and log stay', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#30')
+  await spawn($, '實作 #30', '第 30 張')
+  await $.tool.call({ tool: 'Bash', command: 'git merge --no-ff ticket-30' } as never)
+  await swarm($, '#31')
+  const ui = await mount($)
+  expect(await feature(ui)).toEqual({ isStandalone: true, has30: true, has31: true, has32: false })
+  expect(world.statuses.at(-1)).toMatch(/1 跑 · 0 完 · 票 1\/2/) // 30 is still merged, the card stays
+  expect(await has(ui, /派出 ticket/)).toBe(true)
+  expect(await has(ui, /讀到 獨立票/)).toBe(true)
+  await ui.unmount()
+})
+
+test('github standalone: /swarm naming a spec while standalone tickets are loaded loads that spec', WF, async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await start($)
+  await skill($, '#30')
+  await swarm($, '#10')
+  const ui = await mount($)
+  expect(await has(ui, /Login feature/)).toBe(true)
+  expect(await has(ui, ROW30)).toBe(false)
   await ui.unmount()
 })
