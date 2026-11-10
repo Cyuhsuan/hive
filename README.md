@@ -38,7 +38,7 @@ claude plugin install implement-swarm --marketplace Cyuhsuan/implement-swarm
 | --- | --- |
 | `/swarm` | 打開面板，並顯示目前的工作流與票來源 |
 | `/swarm <issues 資料夾>` | 載入那個資料夾的本地票 |
-| `/swarm #N`、`/swarm <issue 網址>` | 以那個 GitHub issue 為起點載入票 |
+| `/swarm #N`、`/swarm <issue 網址>` | 以那個 GitHub issue 為起點載入票（沒有上層 spec 的 issue 載入為「獨立票」那一批，見「[GitHub 票](#github-票)」） |
 | `/swarm reset` | 清空紀錄，回到純觀察 |
 
 - 面板寬度用滑鼠拖曳面板邊界調整，面板內容會跟著重排。
@@ -100,7 +100,7 @@ session 進行中改設定會讓 mod 重新載入，新值立刻生效：
 2. 派出的子代理 prompt 指到票（`…/issues/NN-*.md`）；
 3. 你輸入 `/swarm <issues 資料夾>`。
 
-由 2 或 3 進入時，先前已記錄的子代理不會消失。票來源是 GitHub 時，這批票全部做完（已併回整合分支或票面 resolved）後，若子代理的 prompt 指到另一份 spec 的票，面板會改載那一批票，子代理卡與 log 保留；這批還有票沒做完時不換批。票來源是本地票檔時沒有「做完才換」的限制：prompt 指到另一個資料夾的票檔（`…/issues/NN-*.md`），面板就改載那個資料夾。子代理的類型或描述含 implement、review、merg 之類的字樣不會啟動任何東西。一旦進入工作流畫面，就不會自動回到純觀察，直到 `/swarm reset` 或新的 session。
+由 2 或 3 進入時，先前已記錄的子代理不會消失。票來源是 GitHub 時，這批票全部做完（已併回整合分支或票面 resolved）後，若子代理的 prompt 指到另一份 spec 的票，或指到一張開啟中的獨立票（沒有上層 spec 的 issue），面板會改載那一批票，子代理卡與 log 保留；這批還有票沒做完時不換批。例外是獨立票那一批：不管做完沒，prompt 指到另一張獨立票就加入這一批（指到某份 spec 的票則照上面的規則）。票來源是本地票檔時沒有「做完才換」的限制：prompt 指到另一個資料夾的票檔（`…/issues/NN-*.md`），面板就改載那個資料夾。子代理的類型或描述含 implement、review、merg 之類的字樣不會啟動任何東西。一旦進入工作流畫面，就不會自動回到純觀察，直到 `/swarm reset` 或新的 session。
 
 ### 畫面內容
 
@@ -141,6 +141,9 @@ session 進行中改設定會讓 mod 重新載入，新值立刻生效：
 ### GitHub 票
 
 - **起點**：一個 spec issue，編號來自 `/implement-spec` 的參數或 `/swarm #N`／`/swarm <issue 網址>`。這批票是它的 sub-issue；沒有 sub-issue 時，是內文以 `Part of #N` 或 `## Parent` 區段指向它的 issue。
+- **獨立票**：沒有上層 spec（沒有 parent，內文也沒有 `Part of #N` 或 `## Parent`）的 issue。同一次工作（從面板重置到下一次重置）裡的獨立票畫在同一批，框名固定為「獨立票」，不和 spec 的票混在同一批；相依、進度、merge、重讀都和 spec 的那一批相同。
+  - **從參數載入**：參數（`/implement-spec`、`/swarm`）裡所有的 `#N`、issue 網址與單獨的數字依出現順序判斷。有 spec（有子票的 issue）或某份 spec 的子票時，載入第一份 spec 的那一批，其餘編號忽略；否則這些票湊成獨立票那一批，只有一張也算。不存在的編號與 PR 略過，全部略過時說明讀不到票。一份還沒拆票的 spec 因此會被畫成一張獨立票。
+  - **從子代理 prompt 加入**：依出現順序看 prompt 的前三個編號，第一個符合的算數：有上層 spec 的是 spec 的票，沒有上層、開啟中、不是 PR 的是獨立票（已關閉的 issue 與 PR 不會成為獨立票）。
 - **相依與進度**：擋住一張票的票取自 GitHub 原生的 blocked-by 關係；沒有時讀內文 `## Blocked by` 區段的 `#N`，只計入同一批的票。已關閉的 issue 是 resolved；已併回整合分支的票即使還沒關閉也算做完；其餘依內文 `- [ ]`／`- [x]` 計進度。
 - **從子代理 prompt 載入**：還沒載入票時，子代理 prompt 裡的 issue 網址或 `#N` 若查得到 parent，就以 parent 為起點載入；載入後，只有屬於這批票的編號才對上票，其他編號（例如 PR）仍是純觀察的卡。
 - **merge**：主 session 的 merge 指令（分支名含票號，如 `ticket-12`）成功後標記為已 merge；對不上時只依關閉狀態呈現。
