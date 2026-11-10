@@ -6,7 +6,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Swarm, SwarmAgent } from '../types'
 import { ACCENT } from './accent'
-import { BEE, HIVE, beeLeft, isReturning, returnLeft, spinnerAt, sweptBar } from './animation'
+import { BEE, beeLeft, comb, isReturning, returnLeft, spinnerAt, sweptBar } from './animation'
 import { PHASE_LABEL, PHASE_PERCENT, isLive } from './agent-phase'
 import { workflowLine } from './pane-model'
 import type { PaneModel } from './pane-model'
@@ -237,16 +237,30 @@ export function drawPane(
         </Box>
       )}
 
-      <Box borderStyle="round" borderColor={ACCENT} paddingX={1} flexDirection="column">
-        <Text wrap="truncate-end">
-          <Text color="warning">{HIVE} </Text>
-          <Text bold color={ACCENT}>lead</Text>
-          <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, boxInner - 6)}</Text>
-        </Text>
-        <Box justifyContent="space-between">
-          {!isNarrow && isWorkflowView && <Text dimColor>派票 → merge → review</Text>}
-          <Text>{clip(leadTally, boxInner)}</Text>
+      {/* The lead is the hive: its frame is honeycomb, drawn by hand (a border style has no such cells). Its two rows never wrap, so each side is two cells. */}
+      <Box key="hive" flexDirection="column" width={W}>
+        <Text color={ACCENT}>{comb(W)}</Text>
+        <Box flexDirection="row">
+          <Box flexDirection="column" width={1}>
+            <Text color={ACCENT}>{comb(1, 1)}</Text>
+            <Text color={ACCENT}>{comb(1)}</Text>
+          </Box>
+          <Box flexDirection="column" width={W - 2} paddingX={1}>
+            <Text wrap="truncate-end">
+              <Text bold color={ACCENT}>lead</Text>
+              <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, boxInner - 4)}</Text>
+            </Text>
+            <Box justifyContent="space-between">
+              {!isNarrow && isWorkflowView && <Text dimColor>派票 → merge → review</Text>}
+              <Text>{clip(leadTally, boxInner)}</Text>
+            </Box>
+          </Box>
+          <Box flexDirection="column" width={1}>
+            <Text color={ACCENT}>{comb(1, W)}</Text>
+            <Text color={ACCENT}>{comb(1, W - 1)}</Text>
+          </Box>
         </Box>
+        <Text color={ACCENT}>{comb(W, 1)}</Text>
       </Box>
 
       <Box paddingLeft={2}>

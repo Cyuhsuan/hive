@@ -243,19 +243,34 @@ test('narrow, the bee flies and the count shows, and nothing is pushed out of th
   }
 })
 
-test('the lead frame carries the hive, with no subagent yet and at every width', ON, async ($, on) => {
+test('the lead frame is honeycomb on all four sides, with no subagent yet and at every width', ON, async ($, on) => {
   engine(on)
   await start($)
 
   for (const columns of [24, 56, 84]) {
-    const tree = await drawn($, columns)
-    const title = find(tree, n => n.type === 'Text' && text(n).includes('⬢') && text(n).includes('lead'))[0]!
-    expect(title).toBeDefined()
-    // the hive comes before the word, and the line still fits the lead's frame
-    const line = text(title)
-    expect(line.indexOf('⬢')).toBeLessThan(line.indexOf('lead'))
-    const shown = find(title, n => n.type === 'Text' && n !== title).map(n => String(n.children?.[0] ?? '')).join('')
-    expect(cells(shown)).toBeLessThanOrEqual(columns - 4)
+    const hive = cardOf(await drawn($, columns), 'hive')
+    expect(hive.props!['width']).toBe(columns)
+    const [top, middle, bottom] = hive.children as Node[]
+    // top and bottom: honeycomb the whole width, full and empty cells by turns
+    for (const edge of [top!, bottom!]) {
+      const row = String(edge.children?.[0])
+      expect(row).toMatch(/^[⬢⬡]+$/)
+      expect(row).not.toMatch(/⬢⬢|⬡⬡/)
+      expect(cells(row)).toBe(columns)
+    }
+    // the sides: one cell each per row, the lead's two rows between them
+    const [left, body, right] = middle!.children as Node[]
+    for (const side of [left!, right!]) {
+      expect(side.props!['width']).toBe(1)
+      expect(side.children).toHaveLength(2)
+      expect(text(side)).toMatch(/[⬢⬡]/)
+    }
+    expect(body!.props!['width']).toBe(columns - 2)
+    expect(body!.children).toHaveLength(2)
+    expect(text(body)).toContain('lead')
+    expect(text(body)).toContain('已派 0')
+    // no line of a plain frame is left on it
+    expect(find(hive, n => n.props?.borderStyle !== undefined)).toHaveLength(0)
   }
 })
 
