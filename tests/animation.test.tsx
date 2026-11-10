@@ -306,8 +306,8 @@ test('the title, feature, lead and their frames are the accent, wide or narrow, 
   for (const columns of [80, 24]) {
     const text = await drawnText($, columns)
     expect(text).not.toContain('"claude"')
-    // title, feature, feature frame, feature bar, lead, and the lead's honeycomb frame (six pieces: top, bottom, two cells a side)
-    expect(text.split(`"${ACCENT}"`).length - 1).toBe(11)
+    // title, feature, feature frame, feature bar, lead, and the lead's honeycomb frame (eight pieces: two rows above, two below, two rows a side)
+    expect(text.split(`"${ACCENT}"`).length - 1).toBe(13)
   }
 })
 
@@ -318,8 +318,8 @@ test('the observing pane draws its title, lead and lead frame in the accent', OB
 
   const text = await drawnText($)
   expect(text).not.toContain('"claude"')
-  // title, lead, and the six pieces of the lead's honeycomb frame
-  expect(text.split(`"${ACCENT}"`).length - 1).toBe(8)
+  // title, lead, and the eight pieces of the lead's honeycomb frame
+  expect(text.split(`"${ACCENT}"`).length - 1).toBe(10)
 })
 
 test('animation off, the whole bar is the accent', OFF, async ($, on) => {
@@ -345,8 +345,8 @@ test('a finished feature has its frame and bar in success, not the accent', ON, 
 
     const bar = (await barOf($)).filter(run => run.text.includes('█'))
     expect(bar.map(run => run.color)).toEqual(['success'])
-    // title, feature, lead and its honeycomb frame (six pieces) are still the accent
-    expect((await drawnText($)).split(`"${ACCENT}"`).length - 1).toBe(9)
+    // title, feature, lead and its honeycomb frame (eight pieces) are still the accent
+    expect((await drawnText($)).split(`"${ACCENT}"`).length - 1).toBe(11)
   } finally {
     TICKETS['02-api.md'] = original
     TICKETS['03-page.md'] = original3

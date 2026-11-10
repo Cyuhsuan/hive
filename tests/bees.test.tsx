@@ -243,36 +243,50 @@ test('narrow, the bee flies and the count shows, and nothing is pushed out of th
   }
 })
 
-test('the lead frame is uneven honeycomb on all four sides, with no subagent yet and at every width', ON, async ($, on) => {
+test('the lead frame is uneven honeycomb with a ragged outline, with no subagent yet and at every width', ON, async ($, on) => {
   engine(on)
   await start($)
 
   for (const columns of [24, 56, 84]) {
     const hive = cardOf(await drawn($, columns), 'hive')
     expect(hive.props!['width']).toBe(columns)
-    const [top, middle, bottom] = hive.children as Node[]
-    // top and bottom: honeycomb the whole width, capped and open cells in no even order
+    const [above, top, middle, bottom, below] = (hive.children as Node[]).map(n => n)
+    const row = (n: Node) => String(n.children?.[0])
+    // the ring's top and bottom: one cell in from each edge, capped and open cells in no even order
     for (const edge of [top!, bottom!]) {
-      const row = String(edge.children?.[0])
-      expect(row).toMatch(/^[⬢⬡]+$/)
-      expect(row).toMatch(/⬢⬢/)
-      expect(row).toMatch(/⬡⬡/)
-      expect(row).toMatch(/⬢⬡⬢/)
-      expect(cells(row)).toBe(columns)
+      expect(row(edge)).toMatch(/^ [⬢⬡]+$/)
+      expect(row(edge)).toMatch(/⬢⬢/)
+      expect(row(edge)).toMatch(/⬡⬡/)
+      expect(row(edge)).toMatch(/⬢⬡⬢/)
+      expect(cells(row(edge))).toBe(columns - 1)
     }
-    // the sides: one cell each per row, the lead's two rows between them
+    expect(row(top!)).not.toBe(row(bottom!))
+    // past the ring, above and below: a few cells stand out and most of the edge is bare
+    for (const ragged of [above!, below!]) {
+      expect(row(ragged)).toMatch(/^[⬢⬡ ]+$/)
+      expect(row(ragged)).toMatch(/[⬢⬡]/)
+      expect(row(ragged)).toMatch(/ {2}/)
+      expect(cells(row(ragged))).toBe(columns)
+      expect(row(ragged).replace(/ /g, '').length).toBeLessThan(columns / 2)
+    }
+    expect(row(above!)).not.toBe(row(below!))
+    // the sides: the ring's cell on every row, and outside it a cell standing out on some rows only
     const [left, body, right] = middle!.children as Node[]
+    const rows = (n: Node) => (n.children as Node[]).map(row)
+    expect(left!.props!['width']).toBe(2)
+    expect(right!.props!['width']).toBe(2)
+    for (const r of rows(left!)) expect(r).toMatch(/^[⬢⬡ ][⬢⬡]$/)
+    for (const r of rows(right!)) expect(r).toMatch(/^[⬢⬡][⬢⬡ ]$/)
     for (const side of [left!, right!]) {
-      expect(side.props!['width']).toBe(1)
-      expect(side.children).toHaveLength(2)
-      expect(text(side)).toMatch(/[⬢⬡]/)
+      const out = rows(side).join('')
+      expect(rows(side)).toHaveLength(2)
+      expect(out).toContain(' ')
+      expect(out.replace(/ /g, '').length).toBe(3)
     }
-    expect(body!.props!['width']).toBe(columns - 2)
+    expect(body!.props!['width']).toBe(columns - 4)
     expect(body!.children).toHaveLength(2)
     expect(text(body)).toContain('lead')
     expect(text(body)).toContain('已派 0')
-    // the two edges are not the same stretch of comb
-    expect(String(top!.children?.[0])).not.toBe(String(bottom!.children?.[0]))
     // no line of a plain frame is left on it
     expect(find(hive, n => n.props?.borderStyle !== undefined)).toHaveLength(0)
     // and the comb is still: drawn again, cell for cell the same

@@ -6,7 +6,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Swarm, SwarmAgent } from '../types'
 import { ACCENT } from './accent'
-import { BEE, beeLeft, comb, isReturning, returnLeft, spinnerAt, sweptBar } from './animation'
+import { BEE, beeLeft, comb, crust, isReturning, returnLeft, spinnerAt, sweptBar } from './animation'
 import { PHASE_LABEL, PHASE_PERCENT, isLive } from './agent-phase'
 import { workflowLine } from './pane-model'
 import type { PaneModel } from './pane-model'
@@ -237,30 +237,34 @@ export function drawPane(
         </Box>
       )}
 
-      {/* The lead is the hive: its frame is honeycomb, capped and open cells in no even order, drawn by hand (a border style has no such cells). Its two rows never wrap, so each side is two cells. */}
+      {/* The lead is the hive: its frame is honeycomb, capped and open cells in no even order, drawn by hand
+          (a border style has no such cells). A ring of comb one cell in from the edge, and past it, on every
+          side, the few cells that stand out: the outline is ragged. Its two rows never wrap, so each side is two rows. */}
       <Box key="hive" flexDirection="column" width={W}>
-        <Text color={ACCENT}>{comb(W)}</Text>
+        <Text color={ACCENT}>{crust(W)}</Text>
+        <Text color={ACCENT}>{` ${comb(W - 2)}`}</Text>
         <Box flexDirection="row">
-          <Box flexDirection="column" width={1}>
-            <Text color={ACCENT}>{comb(1, 4)}</Text>
-            <Text color={ACCENT}>{comb(1, 7)}</Text>
+          <Box flexDirection="column" width={2}>
+            <Text color={ACCENT}>{crust(1, 1) + comb(1, 4)}</Text>
+            <Text color={ACCENT}>{crust(1, 2) + comb(1, 7)}</Text>
           </Box>
-          <Box flexDirection="column" width={W - 2} paddingX={1}>
+          <Box flexDirection="column" width={W - 4} paddingX={1}>
             <Text wrap="truncate-end">
               <Text bold color={ACCENT}>lead</Text>
-              <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, boxInner - 4)}</Text>
+              <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, W - 10)}</Text>
             </Text>
             <Box justifyContent="space-between">
               {!isNarrow && isWorkflowView && <Text dimColor>派票 → merge → review</Text>}
-              <Text>{clip(leadTally, boxInner)}</Text>
+              <Text>{clip(leadTally, W - 6)}</Text>
             </Box>
           </Box>
-          <Box flexDirection="column" width={1}>
-            <Text color={ACCENT}>{comb(1, 9)}</Text>
-            <Text color={ACCENT}>{comb(1, 15)}</Text>
+          <Box flexDirection="column" width={2}>
+            <Text color={ACCENT}>{comb(1, 9) + crust(1, 3)}</Text>
+            <Text color={ACCENT}>{comb(1, 15) + crust(1, 4)}</Text>
           </Box>
         </Box>
-        <Text color={ACCENT}>{comb(W, 11)}</Text>
+        <Text color={ACCENT}>{` ${comb(W - 2, 11)}`}</Text>
+        <Text color={ACCENT}>{crust(W, 13)}</Text>
       </Box>
 
       <Box paddingLeft={2}>
