@@ -6,7 +6,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Swarm, SwarmAgent } from '../types'
 import { ACCENT } from './accent'
-import { BEE, beeLeft, comb, isReturning, returnLeft, spinnerAt, sweptBar } from './animation'
+import { BEE, beeLeft, hiveFrame, isReturning, returnLeft, spinnerAt, sweptBar } from './animation'
 import { PHASE_LABEL, PHASE_PERCENT, isLive } from './agent-phase'
 import { workflowLine } from './pane-model'
 import type { PaneModel } from './pane-model'
@@ -196,6 +196,9 @@ export function drawPane(
     model.finishedAgentCount > 0 ? `${BEE} ${model.finishedAgentCount}` : '',
     isWorkflowView ? `已 merge ${model.mergedCount}` : '',
   ].filter(Boolean).join(' · ')
+  // The hive's teeth come in pairs: an odd body leaves its last column empty.
+  const hiveW = W - (W % 2)
+  const hive = hiveFrame(hiveW)
   // Narrow, a log line names its ticket by number alone.
   const whoW = isNarrow ? 4 : 14
   const who = (name: string) => {
@@ -237,30 +240,30 @@ export function drawPane(
         </Box>
       )}
 
-      {/* The lead is the hive: its frame is honeycomb, drawn by hand (a border style has no such cells). Its two rows never wrap, so each side is two cells. */}
-      <Box key="hive" flexDirection="column" width={W}>
-        <Text color={ACCENT}>{comb(W)}</Text>
+      {/* The lead is the hive: its frame is the jagged outline of honeycomb, drawn by hand (a border style has no such cells). Its two rows never wrap, so each side is two cells. */}
+      <Box key="hive" flexDirection="column" width={hiveW}>
+        <Text color={ACCENT}>{hive.top}</Text>
         <Box flexDirection="row">
           <Box flexDirection="column" width={1}>
-            <Text color={ACCENT}>{comb(1, 1)}</Text>
-            <Text color={ACCENT}>{comb(1)}</Text>
+            <Text color={ACCENT}>{hive.left[0]}</Text>
+            <Text color={ACCENT}>{hive.left[1]}</Text>
           </Box>
-          <Box flexDirection="column" width={W - 2} paddingX={1}>
+          <Box flexDirection="column" width={hiveW - 2} paddingX={1}>
             <Text wrap="truncate-end">
               <Text bold color={ACCENT}>lead</Text>
-              <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, boxInner - 4)}</Text>
+              <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, hiveW - 8)}</Text>
             </Text>
             <Box justifyContent="space-between">
               {!isNarrow && isWorkflowView && <Text dimColor>派票 → merge → review</Text>}
-              <Text>{clip(leadTally, boxInner)}</Text>
+              <Text>{clip(leadTally, hiveW - 4)}</Text>
             </Box>
           </Box>
           <Box flexDirection="column" width={1}>
-            <Text color={ACCENT}>{comb(1, W)}</Text>
-            <Text color={ACCENT}>{comb(1, W - 1)}</Text>
+            <Text color={ACCENT}>{hive.right[0]}</Text>
+            <Text color={ACCENT}>{hive.right[1]}</Text>
           </Box>
         </Box>
-        <Text color={ACCENT}>{comb(W, 1)}</Text>
+        <Text color={ACCENT}>{hive.bottom}</Text>
       </Box>
 
       <Box paddingLeft={2}>
