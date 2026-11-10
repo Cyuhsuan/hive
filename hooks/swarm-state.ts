@@ -3,6 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Swarm, SwarmAgent, SwarmLogLine } from '../types'
 import { isLive } from './agent-phase'
+import { isDone } from './ticket-done'
 import type { Workflow } from './workflow'
 
 export const PANE = 'implement-swarm'
@@ -52,7 +53,7 @@ function refreshStatus($: EngineInterface, s: Swarm, hasTickets: boolean) {
   const done = s.agents.filter(a => a.phase === 'done').length
   const failed = s.agents.filter(a => a.phase === 'failed').length
   const f = hasTickets ? s.feature : undefined
-  const feat = f && f.tickets.length ? ` · 票 ${f.tickets.filter(t => t.status === 'resolved').length}/${f.tickets.length}` : ''
+  const feat = f && f.tickets.length ? ` · 票 ${f.tickets.filter(t => isDone(t, new Set(f.merged))).length}/${f.tickets.length}` : ''
   $.ui.status(`swarm ${live} 跑 · ${done} 完${failed ? ` · ${failed} 敗` : ''}${feat}`)
 }
 

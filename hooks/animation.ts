@@ -15,7 +15,8 @@ const GLOW_REACH = 3
 // tinted somewhere between the two.
 const channelsOf = (hex: string) => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16))
 const GLOW_FROM = channelsOf(ACCENT)
-const GLOW_TO = channelsOf('#f3e8ff')
+const GLOW_PEAK = '#f3e8ff'
+const GLOW_TO = channelsOf(GLOW_PEAK)
 const GLOW_SHADES = 8
 
 /** The spinner's glyph at `now`: every card and ticket at work draws the same one. */

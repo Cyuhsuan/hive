@@ -42,7 +42,7 @@ claude plugin install implement-swarm --marketplace Cyuhsuan/implement-swarm
 | `/swarm reset` | 清空紀錄，回到純觀察 |
 
 - 面板寬度用滑鼠拖曳面板邊界調整，面板內容會跟著重排。
-- 狀態列會顯示「swarm N 跑 · M 完」。
+- 狀態列會顯示「swarm N 跑 · M 完」；工作流畫面下再接「票 N/M」，與面板的票數一致（已併回整合分支或票面為 resolved 的票都算做完）。
 - 狀態存在 session 的 `$.state`，熱重載不會遺失。
 
 ## 設定

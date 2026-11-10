@@ -382,6 +382,48 @@ test('workflow view: the merge marker still follows the lead merging a ticket', 
   await ui.unmount()
 })
 
+test('workflow view: the feature label and the feature name are apart', WF, async ($, on) => {
+  const world = newWorld(LOCAL)
+  engine(on, world)
+  await start($)
+  await spawn($, '實作 .scratch/f/issues/02-api.md', '第 2 張票', 'ticket-implementer')
+
+  const ui = await mount($)
+  expect(await has(ui, /feature f/)).toBe(true)
+  await ui.unmount()
+})
+
+test('workflow view: the status line counts a merged ticket as done', WF, async ($, on) => {
+  const world = newWorld(LOCAL)
+  engine(on, world)
+  await start($)
+  await spawn($, '實作 .scratch/f/issues/02-api.md', '第 2 張票', 'ticket-implementer')
+  expect(world.statuses.at(-1)).toMatch(/票 1\/2/)
+  await $.tool.call({ tool: 'Bash', command: 'git merge --no-ff feat-ticket-02' } as never)
+  expect(world.statuses.at(-1)).toMatch(/票 2\/2/)
+})
+
+test('workflow view: a step whose tickets are all merged is marked past when the next step is current', WF, async ($, on) => {
+  mock.clock(on as never, { now: 1_700_000_000_000 })
+  const ticket = (number: string, step: number) => ({ number, slug: 's', title: `t${number}`, blockedBy: [], status: 'ready-for-agent', checked: 0, checks: 1, step })
+  on('state.get', () => ({
+    value: {
+      value: {
+        shape: 'swarm-5',
+        value: {
+          mode: 'workflow', agents: [], log: [],
+          feature: { sourceId: 'local-markdown', origin: '.scratch/f/issues', name: 'f', merged: ['01'], loadedAt: 1_700_000_000_000, tickets: [ticket('01', 1), ticket('02', 2)] },
+        },
+      },
+      version: 1,
+    },
+  }))
+  const ui = await mount($)
+  expect(await has(ui, /▶ step 2/)).toBe(true)
+  expect(await has(ui, /✓ step 1/)).toBe(true)
+  await ui.unmount()
+})
+
 // ------------------------------------------------------------ the setting changes
 
 const STORED_WORKFLOW = {

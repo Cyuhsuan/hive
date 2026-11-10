@@ -42,7 +42,7 @@ export function drawPane(
   const isNarrow = W < 40
   const boxInner = W - 4 // a frame and one cell of padding each side
 
-  const { live, done, failed, feature, tickets, ticketStates, isWorkflowView, isFeatureDone, currentStep, stepCount, ordered, hiddenDone, logLines, featurePercent, resolvedCount } = model
+  const { live, done, failed, feature, tickets, ticketStates, isWorkflowView, isFeatureDone, currentStep, stepCount, ordered, hiddenDone, logLines, featurePercent, doneCount } = model
 
   // A ticket is `running` only with a live subagent behind it, so its glyph turns with that card's.
   const liveGlyph = isAnimated ? spinnerAt(now) : '●'
@@ -54,7 +54,7 @@ export function drawPane(
   const stepRow = (step: number) => {
     const inStep = tickets.map((t, i) => ({ t, st: ticketStates[i]! })).filter(({ t }) => t.step === step)
     const isCurrent = step === currentStep && !isFeatureDone
-    const isPast = inStep.every(({ t }) => t.status === 'resolved')
+    const isPast = inStep.every(({ st }) => st === 'merged' || st === 'resolved')
     const labelW = isNarrow ? 4 : 9
     const mark = isCurrent ? '▶' : isPast ? '✓' : ' '
     const isSpelled = isCurrent && !isNarrow
@@ -167,8 +167,8 @@ export function drawPane(
 
   const featureColor = isFeatureDone ? 'success' : ACCENT
   const featureTail = isNarrow
-    ? ` ${String(featurePercent).padStart(3)}% ${resolvedCount}/${tickets.length}`
-    : ` ${String(featurePercent).padStart(3)}%  ${resolvedCount}/${tickets.length} 票 · step ${Math.min(currentStep, stepCount)}/${stepCount}`
+    ? ` ${String(featurePercent).padStart(3)}% ${doneCount}/${tickets.length}`
+    : ` ${String(featurePercent).padStart(3)}%  ${doneCount}/${tickets.length} 票 · step ${Math.min(currentStep, stepCount)}/${stepCount}`
   const featureBarW = Math.max(6, boxInner - cells(featureTail))
   const isSweeping = isAnimated && live.length > 0 && featurePercent > 0 && featurePercent < 100
   const leadTally = isWorkflowView ? `已派 ${s.agents.length} · 已 merge ${model.mergedCount}` : `已派 ${s.agents.length}`
@@ -197,7 +197,7 @@ export function drawPane(
       {feature && (
         <Box flexDirection="column" borderStyle="round" borderColor={featureColor} paddingX={1}>
           <Text wrap="truncate-end">
-            <Text bold color={ACCENT}>feature</Text>
+            <Text bold color={ACCENT}>{'feature '}</Text>
             <Text bold>{clip(feature.name, Math.max(4, boxInner - 8))}</Text>
           </Text>
           {tickets.length > 0 && (

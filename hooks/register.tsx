@@ -187,6 +187,7 @@ export const register: Register = (on, options) => {
         await log($, 'lead', `票 ${n} merge 進整合分支`)
       }
       await refreshFeature($, workflow)
+      await status($, workflow)
     }
 
     return ran

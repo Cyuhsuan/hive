@@ -73,7 +73,7 @@ test('feature percent counts resolved tickets whole and open ones by ticked item
   ])
   // (1 + 0.5 + 0 + 0) / 4
   expect(paneModelOf(s, true).featurePercent).toBe(38)
-  expect(paneModelOf(s, true).resolvedCount).toBe(1)
+  expect(paneModelOf(s, true).doneCount).toBe(1)
 })
 
 test('feature percent is 0 without tickets and 100 when all are resolved', () => {
@@ -152,7 +152,7 @@ test('done: a merged ticket whose face is not resolved counts whole in the perce
   const s = swarm([ticket('1', { checked: 0, checks: 2 }), ticket('2')], [], ['1'])
   const m = paneModelOf(s, true)
   expect(m.featurePercent).toBe(50)
-  expect(m.resolvedCount).toBe(1)
+  expect(m.doneCount).toBe(1)
 })
 
 test('done: the current step moves on when every ticket of the step is merged', () => {

@@ -4,6 +4,7 @@
 
 import type { Feature, Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
 import { isLive } from './agent-phase'
+import { isDone } from './ticket-done'
 import type { Workflow } from './workflow'
 
 /** Completed cards a pane that only observes lists; the rest fold into one line. */
@@ -25,7 +26,7 @@ export type PaneModel = {
   /** Feature percent, 0 to 100. */
   featurePercent: number
   /** Tickets that are done: merged into the integration branch, or resolved on their face. */
-  resolvedCount: number
+  doneCount: number
   stepCount: number
   currentStep: number
   isFeatureDone: boolean
@@ -45,11 +46,6 @@ type TicketStateInput = {
   liveTicketNumbers: ReadonlySet<string | undefined>
   failedTicketNumbers: ReadonlySet<string | undefined>
   tickets: readonly Ticket[]
-}
-
-/** A ticket is done once it is merged into the integration branch or resolved on its face. */
-function isDone(t: Ticket, merged: ReadonlySet<string>): boolean {
-  return merged.has(t.number) || t.status === 'resolved'
 }
 
 /** A ticket's state: merged, then resolved, then running, failed, blocked, else ready. */
@@ -110,7 +106,7 @@ export function paneModelOf(s: Swarm, isWorkflowView: boolean): PaneModel {
   const feature = isWorkflowView ? s.feature : undefined
   const tickets = feature?.tickets ?? []
   const merged = new Set(feature?.merged ?? [])
-  const resolvedCount = tickets.filter(t => isDone(t, merged)).length
+  const doneCount = tickets.filter(t => isDone(t, merged)).length
   const ctx: TicketStateInput = {
     merged,
     liveTicketNumbers: new Set(live.map(a => a.ticketNumber).filter(Boolean)),
@@ -125,11 +121,11 @@ export function paneModelOf(s: Swarm, isWorkflowView: boolean): PaneModel {
     feature,
     tickets,
     ticketStates: tickets.map(t => ticketStateOf(t, ctx)),
-    featurePercent: featurePercentOf(tickets, merged, resolvedCount),
-    resolvedCount,
+    featurePercent: featurePercentOf(tickets, merged, doneCount),
+    doneCount,
     stepCount,
     currentStep: currentStepOf(tickets, merged, stepCount),
-    isFeatureDone: tickets.length > 0 && resolvedCount === tickets.length,
+    isFeatureDone: tickets.length > 0 && doneCount === tickets.length,
     live,
     done,
     failed,
