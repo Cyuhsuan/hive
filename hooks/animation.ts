@@ -21,7 +21,7 @@ export function spinnerAt(now: number): string {
 }
 
 /** A stretch of bar cells drawn alike; `glow` is the tint of lit cells, absent for the bar's own color. */
-export type BarRun = { text: string; glow?: string }
+type BarRun = { text: string; glow?: string }
 
 /**
  * A bar whose filled cells a band of light crosses left to right, once every
@@ -46,6 +46,6 @@ export function sweptBar(percent: number, width: number, now: number): BarRun[] 
   return runs
 }
 
-export function tint(amount: number): string {
+function tint(amount: number): string {
   return '#' + GLOW_FROM.map((from, i) => Math.round(from + (GLOW_TO[i]! - from) * amount).toString(16).padStart(2, '0')).join('')
 }

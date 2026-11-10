@@ -7,7 +7,7 @@ import type { EngineInterface } from 'claude-code'
 import type { Swarm, SwarmAgent } from '../types'
 import { spinnerAt, sweptBar } from './animation'
 import { PHASE_LABEL, PHASE_PERCENT, isLive } from './agent-phase'
-import { workflowLine } from './feature-load'
+import { workflowLine } from './pane-model'
 import type { PaneModel } from './pane-model'
 import { bar, cells, clip, fmtClock, fmtDuration, shortModel } from './text-format'
 import { sourceById } from './workflow'
@@ -17,7 +17,7 @@ import type { Workflow } from './workflow'
 // here. The engine seats a dock at 24 body columns at least.
 const WIDTH_MIN = 24
 
-export type PaneDrawing = {
+type PaneDrawing = {
   s: Swarm
   model: PaneModel
   /** The clock's now. */
@@ -41,9 +41,7 @@ export function drawPane(
   const isNarrow = W < 40
   const boxInner = W - 4 // a frame and one cell of padding each side
 
-  const { live, done, failed, feature, tickets, states, isWorkflowView, isFeatureDone, currentStep, stepCount, ordered, hiddenDone, logLines } = model
-  const featurePercent = model.percent
-  const resolvedCount = model.resolvedCount
+  const { live, done, failed, feature, tickets, ticketStates, isWorkflowView, isFeatureDone, currentStep, stepCount, ordered, hiddenDone, logLines, featurePercent, resolvedCount } = model
 
   // A ticket is `running` only with a live subagent behind it, so its glyph turns with that card's.
   const liveGlyph = isAnimated ? spinnerAt(now) : '●'
@@ -53,9 +51,9 @@ export function drawPane(
   // One row per step. The step being worked spells its tickets out (title,
   // acceptance count); the others are a glyph and a number each.
   const stepRow = (step: number) => {
-    const inStep = tickets.filter(t => t.step === step)
+    const inStep = tickets.map((t, i) => ({ t, st: ticketStates[i]! })).filter(({ t }) => t.step === step)
     const isCurrent = step === currentStep && !isFeatureDone
-    const isPast = inStep.every(t => t.status === 'resolved')
+    const isPast = inStep.every(({ t }) => t.status === 'resolved')
     const labelW = isNarrow ? 4 : 9
     const mark = isCurrent ? '▶' : isPast ? '✓' : ' '
     const isSpelled = isCurrent && !isNarrow
@@ -68,8 +66,7 @@ export function drawPane(
           </Text>
         </Box>
         <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
-          {inStep.map(t => {
-            const st = states[t.number]!
+          {inStep.map(({ t, st }) => {
             const color = st === 'ready' || st === 'blocked' ? undefined : stateColor[st]
             return isSpelled ? (
               <Box key={`t-${t.number}`} width={cellW}>

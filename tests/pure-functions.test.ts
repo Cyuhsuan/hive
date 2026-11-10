@@ -62,6 +62,7 @@ test('phaseOfCall reads a Bash command as commit, then merge, then test', () => 
   expect(phaseOfCall(a, 'Bash', { command: 'git merge main && npm test' })).toBe('merging')
   expect(phaseOfCall(a, 'Bash', { command: 'npm test && git commit -m x' })).toBe('committing')
   expect(phaseOfCall(a, 'Bash', { command: 'git rebase main; vitest' })).toBe('merging')
+  expect(phaseOfCall(a, 'Bash', { command: 'git merge x && git commit -m y' })).toBe('committing')
   expect(phaseOfCall(a, 'Bash', { command: 'dotnet test' })).toBe('testing')
   expect(phaseOfCall(a, 'Bash', { command: 'ls' })).toBe('reading')
   expect(phaseOfCall(agent('spawned'), 'Bash', { command: 'ls' })).toBe('reading')

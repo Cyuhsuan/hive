@@ -12,7 +12,7 @@ export const EMPTY: Swarm = { mode: 'observe', agents: [], log: [] }
 
 // Bump the tag when Swarm's fields change: an earlier version's value
 // outlives a reload and is then read as EMPTY instead of crashing the pane.
-export const swarm = atom({ plugin: 'implement-swarm', key: 'swarm' } as const, EMPTY, {
+const swarm = atom({ plugin: 'implement-swarm', key: 'swarm' } as const, EMPTY, {
   shape: 'swarm-5',
 })
 
@@ -43,7 +43,7 @@ export async function patchAgent(
   }))
 }
 
-export function refreshStatus($: EngineInterface, s: Swarm, hasTickets: boolean) {
+function refreshStatus($: EngineInterface, s: Swarm, hasTickets: boolean) {
   if (s.mode === 'observe' && s.agents.length === 0) {
     $.ui.status(undefined)
     return

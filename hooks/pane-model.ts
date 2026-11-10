@@ -4,9 +4,10 @@
 
 import type { Feature, Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
 import { isLive } from './agent-phase'
+import type { Workflow } from './workflow'
 
 /** Completed cards a pane that only observes lists; the rest fold into one line. */
-export const DONE_SHOWN = 5
+const DONE_SHOWN = 5
 
 /** How many session log lines the pane draws. */
 const LOG_SHOWN = 5
@@ -19,10 +20,10 @@ export type PaneModel = {
   /** The feature to draw; none when the workflow screen is not shown. */
   feature: Feature | undefined
   tickets: Ticket[]
-  /** Each ticket's state, by ticket number. */
-  states: Record<string, TicketState>
+  /** Each ticket's state, in the order of `tickets`. */
+  ticketStates: TicketState[]
   /** Feature percent, 0 to 100. */
-  percent: number
+  featurePercent: number
   resolvedCount: number
   stepCount: number
   currentStep: number
@@ -38,19 +39,19 @@ export type PaneModel = {
   logLines: SwarmLogLine[]
 }
 
-export type TicketStateInput = {
+type TicketStateInput = {
   merged: ReadonlySet<string>
-  live: ReadonlySet<string | undefined>
-  failed: ReadonlySet<string | undefined>
+  liveTicketNumbers: ReadonlySet<string | undefined>
+  failedTicketNumbers: ReadonlySet<string | undefined>
   tickets: readonly Ticket[]
 }
 
 /** A ticket's state: merged, then resolved, then running, failed, blocked, else ready. */
-export function ticketStateOf(t: Ticket, ctx: TicketStateInput): TicketState {
+function ticketStateOf(t: Ticket, ctx: TicketStateInput): TicketState {
   if (ctx.merged.has(t.number)) return 'merged'
   if (t.status === 'resolved') return 'resolved'
-  if (ctx.live.has(t.number)) return 'running'
-  if (ctx.failed.has(t.number)) return 'failed'
+  if (ctx.liveTicketNumbers.has(t.number)) return 'running'
+  if (ctx.failedTicketNumbers.has(t.number)) return 'failed'
   const isBlocked = t.blockedBy.some(b => {
     const blocker = ctx.tickets.find(x => x.number === b)
     return blocker ? blocker.status !== 'resolved' : false
@@ -59,9 +60,8 @@ export function ticketStateOf(t: Ticket, ctx: TicketStateInput): TicketState {
 }
 
 /** Resolved tickets count whole; an open ticket counts by its ticked acceptance items. */
-export function featurePercentOf(tickets: readonly Ticket[]): number {
+function featurePercentOf(tickets: readonly Ticket[], resolved: number): number {
   if (!tickets.length) return 0
-  const resolved = tickets.filter(t => t.status === 'resolved').length
   const openChecked = tickets
     .filter(t => t.status !== 'resolved')
     .reduce((n, t) => n + (t.checks ? t.checked / t.checks : 0), 0)
@@ -69,8 +69,7 @@ export function featurePercentOf(tickets: readonly Ticket[]): number {
 }
 
 /** The step of the first open ticket; the step count when every ticket is resolved. */
-export function currentStepOf(tickets: readonly Ticket[]): number {
-  const stepCount = Math.max(0, ...tickets.map(t => t.step))
+function currentStepOf(tickets: readonly Ticket[], stepCount: number): number {
   return tickets.find(t => t.status !== 'resolved')?.step ?? stepCount
 }
 
@@ -79,8 +78,7 @@ export function currentStepOf(tickets: readonly Ticket[]): number {
  * by start. Observing only, a finished run is as long as the session: only the
  * latest few done cards are listed and the rest are counted as folded.
  */
-export function orderCards(agents: readonly SwarmAgent[], isWorkflowView: boolean): { ordered: SwarmAgent[]; hiddenDone: number } {
-  const done = agents.filter(a => a.phase === 'done')
+function orderCards(agents: readonly SwarmAgent[], done: readonly SwarmAgent[], isWorkflowView: boolean): { ordered: SwarmAgent[]; hiddenDone: number } {
   const rank = (a: SwarmAgent) => (a.phase === 'failed' ? 0 : a.phase === 'done' ? 2 : 1)
   const recentDone = new Set(
     [...done].sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0)).slice(0, DONE_SHOWN).map(a => a.id),
@@ -93,7 +91,7 @@ export function orderCards(agents: readonly SwarmAgent[], isWorkflowView: boolea
 }
 
 /** The log draws what moved the work on: a phase change is on the card already. */
-export function logLinesOf(log: readonly SwarmLogLine[]): SwarmLogLine[] {
+function logLinesOf(log: readonly SwarmLogLine[]): SwarmLogLine[] {
   return log.filter(line => !line.text.startsWith('→ ')).slice(-LOG_SHOWN)
 }
 
@@ -108,23 +106,22 @@ export function paneModelOf(s: Swarm, isWorkflowView: boolean): PaneModel {
   const resolvedCount = tickets.filter(t => t.status === 'resolved').length
   const ctx: TicketStateInput = {
     merged: new Set(feature?.merged ?? []),
-    live: new Set(live.map(a => a.ticketNumber).filter(Boolean)),
-    failed: new Set(failed.map(a => a.ticketNumber).filter(Boolean)),
+    liveTicketNumbers: new Set(live.map(a => a.ticketNumber).filter(Boolean)),
+    failedTicketNumbers: new Set(failed.map(a => a.ticketNumber).filter(Boolean)),
     tickets,
   }
-  const states: Record<string, TicketState> = {}
-  for (const t of tickets) states[t.number] = ticketStateOf(t, ctx)
+  const stepCount = Math.max(0, ...tickets.map(t => t.step))
 
-  const { ordered, hiddenDone } = orderCards(s.agents, isWorkflowView)
+  const { ordered, hiddenDone } = orderCards(s.agents, done, isWorkflowView)
   return {
     isWorkflowView,
     feature,
     tickets,
-    states,
-    percent: featurePercentOf(tickets),
+    ticketStates: tickets.map(t => ticketStateOf(t, ctx)),
+    featurePercent: featurePercentOf(tickets, resolvedCount),
     resolvedCount,
-    stepCount: Math.max(0, ...tickets.map(t => t.step)),
-    currentStep: currentStepOf(tickets),
+    stepCount,
+    currentStep: currentStepOf(tickets, stepCount),
     isFeatureDone: tickets.length > 0 && resolvedCount === tickets.length,
     live,
     done,
@@ -134,4 +131,9 @@ export function paneModelOf(s: Swarm, isWorkflowView: boolean): PaneModel {
     mergedCount: ctx.merged.size,
     logLines: logLinesOf(s.log),
   }
+}
+
+/** The workflow's own line: which workflow, which ticket source, and why its tickets could not be read. */
+export function workflowLine(workflow: Workflow, s: Swarm): string {
+  return `工作流 ${workflow.name} · 票來源 ${s.sourceLabel ?? '尚未判斷'}${s.loadFailure ? `（${s.loadFailure}）` : ''}`
 }

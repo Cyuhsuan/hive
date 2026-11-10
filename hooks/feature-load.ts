@@ -1,13 +1,13 @@
 import type { EngineInterface } from 'claude-code'
 
 import type { Swarm } from '../types'
-import { isWorkflowShown, log, readSwarm, updateSwarm } from './swarm-state'
+import { log, readSwarm, updateSwarm } from './swarm-state'
 import { ticketName } from './ticket-source'
 import type { SourceEnv, TicketRef, TicketSource } from './ticket-source'
 import { sourceById } from './workflow'
 import type { SourceChoice, Workflow } from './workflow'
 
-export function envOf($: EngineInterface): SourceEnv {
+function envOf($: EngineInterface): SourceEnv {
   return {
     fs: { list: p => $.fs.list(p), read: p => $.fs.read(p) },
     now: () => $.clock.now(),
@@ -16,15 +16,10 @@ export function envOf($: EngineInterface): SourceEnv {
 }
 
 // A spawn does not ask a failing source again within this long.
-export const RETRY_AFTER_MS = 10_000
-
-/** The workflow's own line: which workflow, which ticket source, and why its tickets could not be read. */
-export function workflowLine(workflow: Workflow, s: Swarm): string {
-  return `工作流 ${workflow.name} · 票來源 ${s.sourceLabel ?? '尚未判斷'}${s.loadFailure ? `（${s.loadFailure}）` : ''}`
-}
+const RETRY_AFTER_MS = 10_000
 
 /** Reads the project's tracker setting afresh and says which ticket source it names. */
-export function chooseSource($: EngineInterface, workflow: Workflow): Promise<SourceChoice> {
+function chooseSource($: EngineInterface, workflow: Workflow): Promise<SourceChoice> {
   return workflow.chooseSource({ read: p => $.fs.read(p) })
 }
 
@@ -45,7 +40,7 @@ export async function reportFailure($: EngineInterface, source: TicketSource, or
  * No feature is loaded and the prompt may name a ticket whose spec has to be
  * looked up (a GitHub issue's parent). Asks the ticket source, if it can.
  */
-export async function resolveUnloaded($: EngineInterface, workflow: Workflow, text: string, now: number, s: Swarm): Promise<TicketRef | undefined> {
+async function resolveUnloaded($: EngineInterface, workflow: Workflow, text: string, now: number, s: Swarm): Promise<TicketRef | undefined> {
   if (s.failedAt !== undefined && now - s.failedAt < RETRY_AFTER_MS) return undefined
   // A source known not to look anything up is not asked for again: the setting is read once.
   if (s.sourceId !== undefined && !sourceById(s.sourceId, workflow).resolveRef) return undefined
@@ -134,22 +129,20 @@ export async function openFeature($: EngineInterface, source: TicketSource, orig
 }
 
 /** The ticket a prompt points at, and the ticket source to load its feature from when that is not the one on the screen. */
-export type PromptTicket = {
+type PromptTicket = {
   ticket?: string
   ticketNumber?: string
-  /** Set when the pointed-at ticket's feature is not loaded: where to read it. */
-  loadFrom?: TicketSource
-  /** Where in `loadFrom` the feature is. */
-  origin?: string
+  /** Set when the pointed-at ticket's feature is not loaded: the source to read it from and where in it. */
+  load?: { source: TicketSource; origin: string }
 }
 
 /**
  * Which ticket the prompt points at: in the loaded feature's source, or in any
  * of the workflow's while none is loaded. `s` is the panel state before the
- * spawn is recorded; `now` is the clock then.
+ * spawn is recorded; `now` is the clock then; `shown` is whether the workflow
+ * screen is up on `s`.
  */
-export async function ticketOfPrompt($: EngineInterface, prompt: string, s: Swarm, workflow: Workflow | undefined, now: number): Promise<PromptTicket> {
-  const shown = isWorkflowShown(s, workflow)
+export async function ticketOfPrompt($: EngineInterface, prompt: string, s: Swarm, workflow: Workflow | undefined, now: number, shown: boolean): Promise<PromptTicket> {
   const sources = shown && s.feature ? [sourceById(s.feature.sourceId, workflow)] : (workflow?.sources ?? [])
   let ref: TicketRef | undefined
   for (const src of sources) ref ??= src.refOfText(prompt, s.feature)
@@ -161,5 +154,5 @@ export async function ticketOfPrompt($: EngineInterface, prompt: string, s: Swar
   // A ticket pointed at: the ticket source setting is read afresh before any tickets are.
   const choice = await pickSource($, workflow)
   if (!choice?.source) return {}
-  return { ticket: ref.ticket, ticketNumber: ref.number, loadFrom: choice.source, origin: ref.origin }
+  return { ticket: ref.ticket, ticketNumber: ref.number, load: { source: choice.source, origin: ref.origin } }
 }

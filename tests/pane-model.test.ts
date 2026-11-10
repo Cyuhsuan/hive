@@ -22,7 +22,7 @@ function swarm(tickets: Ticket[], agents: SwarmAgent[] = [], merged: string[] = 
   }
 }
 
-const stateOf = (s: Swarm, n: string) => paneModelOf(s, true).states[n]
+const stateOf = (s: Swarm, n: string) => paneModelOf(s, true).ticketStates[s.feature!.tickets.findIndex(t => t.number === n)]
 
 test('ticket state: merged wins over everything', () => {
   const s = swarm([ticket('1', { status: 'resolved' })], [agent('a', 'reading', { ticketNumber: '1' })], ['1'])
@@ -59,6 +59,11 @@ test('ticket state: a blocker outside the batch does not block', () => {
   expect(stateOf(swarm([ticket('2', { blockedBy: ['9'] })]), '2')).toBe('ready')
 })
 
+test('ticket state: two tickets sharing a number each keep their own', () => {
+  const s = swarm([ticket('01', { status: 'resolved' }), ticket('01', { slug: 'b' })])
+  expect(paneModelOf(s, true).ticketStates).toEqual(['resolved', 'ready'])
+})
+
 test('feature percent counts resolved tickets whole and open ones by ticked items', () => {
   const s = swarm([
     ticket('1', { status: 'resolved' }),
@@ -67,15 +72,15 @@ test('feature percent counts resolved tickets whole and open ones by ticked item
     ticket('4'),
   ])
   // (1 + 0.5 + 0 + 0) / 4
-  expect(paneModelOf(s, true).percent).toBe(38)
+  expect(paneModelOf(s, true).featurePercent).toBe(38)
   expect(paneModelOf(s, true).resolvedCount).toBe(1)
 })
 
 test('feature percent is 0 without tickets and 100 when all are resolved', () => {
-  expect(paneModelOf(swarm([]), true).percent).toBe(0)
+  expect(paneModelOf(swarm([]), true).featurePercent).toBe(0)
   const all = swarm([ticket('1', { status: 'resolved' }), ticket('2', { status: 'resolved', step: 2 })])
   const m = paneModelOf(all, true)
-  expect(m.percent).toBe(100)
+  expect(m.featurePercent).toBe(100)
   expect(m.isFeatureDone).toBe(true)
 })
 
@@ -123,7 +128,7 @@ test('no feature when the workflow screen is not shown, though the state holds t
   const m = paneModelOf(s, false)
   expect(m.feature).toBeUndefined()
   expect(m.tickets).toEqual([])
-  expect(m.percent).toBe(0)
+  expect(m.featurePercent).toBe(0)
 })
 
 test('merged count and agent groups', () => {

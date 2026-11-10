@@ -1,9 +1,9 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Swarm, SwarmAgent, Ticket } from '../types'
+import type { Swarm, SwarmAgent } from '../types'
 import { PHASE_LABEL, describeCall, isLive, phaseOfCall, whoOf } from './agent-phase'
-import { enterWorkflow, loadFeature, openFeature, pickSource, refreshFeature, reportFailure, ticketOfPrompt, workflowLine } from './feature-load'
-import { paneModelOf } from './pane-model'
+import { enterWorkflow, loadFeature, openFeature, pickSource, refreshFeature, reportFailure, ticketOfPrompt } from './feature-load'
+import { paneModelOf, workflowLine } from './pane-model'
 import { drawPane } from './pane-view'
 import { EMPTY, PANE, TITLE, isWorkflowShown, log, patchAgent, readSwarm, status, updateSwarm } from './swarm-state'
 import { fmtDuration, shortModel, shortType } from './text-format'
@@ -127,7 +127,7 @@ export const register: Register = (on, options) => {
     const at = await $.clock.now()
     const before = await readSwarm($)
     const shown = isShown(before)
-    const { ticket, ticketNumber, loadFrom, origin } = await ticketOfPrompt($, e.prompt, before, workflow, at)
+    const { ticket, ticketNumber, load } = await ticketOfPrompt($, e.prompt, before, workflow, at, shown)
 
     const agent: SwarmAgent = {
       id: started.agentId,
@@ -150,7 +150,7 @@ export const register: Register = (on, options) => {
       agents: [...s.agents.filter(a => a.id !== agent.id), agent],
     }))
     await log($, whoOf(agent), `派出 ${shortType(agent.type)} · ${shortModel(agent.model)}${agent.isBackground ? ' · 背景' : ''}`)
-    if (loadFrom && origin !== undefined && (await loadFeature($, loadFrom, origin))) {
+    if (load && (await loadFeature($, load.source, load.origin))) {
       await enterWorkflow($, false)
       if (!shown) await openPane($)
     }
