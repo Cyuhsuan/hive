@@ -170,7 +170,7 @@ const standaloneEnv = (extra: Record<string, unknown> = {}, calls: string[] = []
     calls,
   )
 
-test('load: issues named with no spec among them are one batch called 獨立票, steps by blocked-by inside the batch only', async () => {
+test('load: issues named with no spec among them are one feature called 獨立票, steps by blocked-by inside the feature only', async () => {
   const result = await githubSource.load(standaloneEnv(), 'args:31,30')
   expect(result.ok).toBe(true)
   if (!result.ok) return
@@ -180,7 +180,7 @@ test('load: issues named with no spec among them are one batch called 獨立票,
     ['30', 'Lone A', 'open', 1, 2, 1, []],
     ['31', 'Lone B', 'resolved', 0, 0, 2, ['30']],
   ])
-  // the batch names its tickets, so it is read again from its origin alone
+  // the feature names its tickets, so it is read again from its origin alone
   expect(githubSource.isStandalone!(result.feature.origin)).toBe(true)
   const again = await githubSource.load(standaloneEnv(), result.feature.origin)
   expect(again.ok && again.feature.tickets.map(t => t.number)).toEqual(['30', '31'])
@@ -207,7 +207,7 @@ test('load: a ticket of a spec named loads its spec; the first spec named wins, 
   expect(byPartOf.ok && [byPartOf.feature.name, byPartOf.feature.tickets.map(t => t.number)]).toEqual(['Old spec', ['41']])
 })
 
-test('load: numbers that do not exist or are pull requests are left out; if none is left it fails, not an empty batch', async () => {
+test('load: numbers that do not exist or are pull requests are left out; if none is left it fails, not an empty feature', async () => {
   const some = await githubSource.load(standaloneEnv(), 'args:98,30,97')
   expect(some.ok && some.feature.tickets.map(t => t.number)).toEqual(['30'])
   const none = await githubSource.load(standaloneEnv(), 'args:98,97')
@@ -215,7 +215,7 @@ test('load: numbers that do not exist or are pull requests are left out; if none
   if (!none.ok) expect(none.reason).toMatch(/讀不到/)
 })
 
-test('load: one failing call fails the whole standalone batch', async () => {
+test('load: one failing call fails the whole standalone feature', async () => {
   const boom = { exitCode: 1, stderr: 'gh: HTTP 500 Server Error' }
   expect((await githubSource.load(standaloneEnv({ 'issues/31': boom }), 'args:30,31')).ok).toBe(false)
   expect((await githubSource.load(standaloneEnv({ 'issues/31/dependencies/blocked_by': boom }), 'standalone:30,31')).ok).toBe(false)
@@ -224,20 +224,23 @@ test('load: one failing call fails the whole standalone batch', async () => {
 
 test('resolveRef: an open issue with no parent is a standalone ticket; a closed one or a pull request is nothing', async () => {
   const env = standaloneEnv()
-  expect(await githubSource.resolveRef!(env, 'do #30')).toEqual({ ok: true, ref: { origin: 'standalone:30', ticket: '30', number: '30', isStandalone: true } })
+  expect(await githubSource.resolveRef!(env, 'do #30')).toEqual({ ok: true, ref: { origin: 'standalone:30', ticket: '30', number: '30' } })
   expect(await githubSource.resolveRef!(env, 'do #31')).toEqual({ ok: true })
   expect(await githubSource.resolveRef!(env, 'do #97')).toEqual({ ok: true })
   // a ticket of a spec stays the spec's, and the first number that counts wins
   expect(await githubSource.resolveRef!(env, 'do #31 then #12')).toEqual({ ok: true, ref: { origin: '10', ticket: '12', number: '12' } })
-  expect(await githubSource.resolveRef!(env, 'do #12')).not.toHaveProperty('ref.isStandalone')
+  expect(githubSource.isStandalone!('standalone:30')).toBe(true)
+  expect(githubSource.isStandalone!('10')).toBe(false)
 })
 
-test('addToStandalone: the origin of a standalone batch with one more ticket, never twice', () => {
-  expect(githubSource.addToStandalone!('standalone:30', '31')).toBe('standalone:30,31')
-  expect(githubSource.addToStandalone!('standalone:30,31', '30')).toBe('standalone:30,31')
+test('joinStandalone: the origin of the standalone feature with the tickets of both, never twice; anything else is the second', () => {
+  expect(githubSource.joinStandalone!('standalone:30', 'standalone:31')).toBe('standalone:30,31')
+  expect(githubSource.joinStandalone!('standalone:30,31', 'standalone:30')).toBe('standalone:30,31')
+  expect(githubSource.joinStandalone!('10', 'standalone:31')).toBe('standalone:31')
+  expect(githubSource.joinStandalone!('standalone:30', '10')).toBe('10')
 })
 
-test('emptyText: a standalone batch is not described as a spec', () => {
+test('emptyText: a standalone feature is not described as a spec', () => {
   expect(githubSource.emptyText('standalone:30')).not.toMatch(/#standalone/)
 })
 
@@ -271,7 +274,7 @@ test('resolveRef: the parent of the issue a prompt names, by the parent endpoint
   expect(await githubSource.resolveRef!(env, 'see https://github.com/o/r/issues/12')).toEqual({ ok: true, ref: { origin: '10', ticket: '12', number: '12' } })
   expect(await githubSource.resolveRef!(env, 'do #13')).toEqual({ ok: true, ref: { origin: '10', ticket: '13', number: '13' } })
   // an open issue with no parent is a standalone ticket
-  expect(await githubSource.resolveRef!(env, 'do #14')).toEqual({ ok: true, ref: { origin: 'standalone:14', ticket: '14', number: '14', isStandalone: true } })
+  expect(await githubSource.resolveRef!(env, 'do #14')).toEqual({ ok: true, ref: { origin: 'standalone:14', ticket: '14', number: '14' } })
   expect(await githubSource.resolveRef!(env, 'no number here')).toEqual({ ok: true })
   const failed = await githubSource.resolveRef!(ghEnv({ 'issues/12/parent': { exitCode: 4, stderr: 'run gh auth login' } }), '#12')
   expect(failed).toEqual({ ok: false, reason: '`gh` 未登入' })

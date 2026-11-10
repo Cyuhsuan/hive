@@ -13,8 +13,6 @@ export type TicketRef = {
   ticket: string
   /** The ticket's number as the feature lists it: `03`, `12`. */
   number: string
-  /** Set when the ticket has no spec above it: `origin` then names a standalone batch of this one ticket. */
-  isStandalone?: boolean
 }
 
 /** What a source may use from the engine: reading, the clock, and (for a source that talks to a CLI) running a command. */
@@ -45,13 +43,13 @@ export interface TicketSource {
   /**
    * Loads the feature at `origin`; asynchronous, and may fail with a reason. The
    * feature's own `origin` may differ from the one asked for (an origin made of
-   * the numbers a skill named is sorted into a spec or a standalone batch).
+   * the numbers a skill named is sorted into a spec or a standalone feature).
    */
   load(env: SourceEnv, origin: string): Promise<LoadResult>
-  /** Whether a feature's origin names a batch of standalone tickets (no spec above them). */
+  /** Whether a feature's origin names a feature of standalone tickets (no spec above them). */
   isStandalone?(origin: string): boolean
-  /** The origin of the standalone batch at `origin` with `ticket` in it too. */
-  addToStandalone?(origin: string, ticket: string): string
+  /** The origin of the standalone feature that has the tickets of both `a` and `b`; `b` when they are not both standalone. */
+  joinStandalone?(a: string, b: string): string
   /** The origin a skill's arguments name, if any; it may name several tickets. */
   originOfArgs(args: string): string | undefined
   /** The origin the text after `/swarm` names, if any; a source may take the whole text as one. */
