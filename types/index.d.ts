@@ -48,7 +48,7 @@ export type Ticket = {
 export type Feature = {
   /** The id of the ticket source that loaded it. */
   sourceId: string
-  /** What the source loaded from: for local markdown, the issues folder (relative or absolute); for GitHub, the spec issue's number. */
+  /** What the source loaded from: for local markdown, the issues folder (relative or absolute); for GitHub, the spec issue's number, or `standalone:<n>,<n>` for the standalone tickets of one piece of work. */
   origin: string
   name: string
   tickets: Ticket[]
