@@ -4,6 +4,7 @@
 
 import type { Feature, Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
 import { isLive } from './agent-phase'
+import { isReturning } from './animation'
 import { isDone, isEveryTicketDone } from './ticket-done'
 import type { Workflow } from './workflow'
 
@@ -38,8 +39,6 @@ export type PaneModel = {
   /** Done cards folded into one line. */
   hiddenDone: number
   mergedCount: number
-  /** Subagents that finished, failed ones not counted; a bee still on its way home is counted too. */
-  finishedAgentCount: number
   logLines: SwarmLogLine[]
 }
 
@@ -99,6 +98,20 @@ function logLinesOf(log: readonly SwarmLogLine[]): SwarmLogLine[] {
   return log.filter(line => !line.text.startsWith('→ ')).slice(-LOG_SHOWN)
 }
 
+/**
+ * The cards whose bees are in the air at `now`: the ones drawn, since a bee
+ * leaves from its card. With animation off nothing flies. A done card folded
+ * into the "N more" line is not drawn, so its bee does not fly either.
+ */
+export function returningCards(model: Pick<PaneModel, 'ordered'>, now: number, isAnimated: boolean): (SwarmAgent & { endedAt: number })[] {
+  return isAnimated ? model.ordered.filter((a): a is SwarmAgent & { endedAt: number } => isReturning(a, now)) : []
+}
+
+/** The bees that came home: finished subagents, failed ones not counted, a bee still on its way left out. */
+export function homeBeeCount(model: Pick<PaneModel, 'done' | 'ordered'>, now: number, isAnimated: boolean): number {
+  return model.done.length - returningCards(model, now, isAnimated).length
+}
+
 export function paneModelOf(s: Swarm, isWorkflowView: boolean): PaneModel {
   const live = s.agents.filter(isLive)
   const done = s.agents.filter(a => a.phase === 'done')
@@ -134,7 +147,6 @@ export function paneModelOf(s: Swarm, isWorkflowView: boolean): PaneModel {
     ordered,
     hiddenDone,
     mergedCount: ctx.merged.size,
-    finishedAgentCount: done.length,
     logLines: logLinesOf(s.log),
   }
 }

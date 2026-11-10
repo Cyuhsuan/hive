@@ -29,7 +29,7 @@ export function spinnerAt(now: number): string {
 export const BEE = '🐝'
 /** One lap of a bee along the top of its card: out to the far end and back. */
 export const BEE_LAP_MS = 4000
-/** How long a finished subagent's bee takes to leave its card. */
+/** How long a finished subagent's bee takes to fly home to the lead. */
 export const RETURN_MS = 1000
 
 /** The bee's column along a card's top edge at `now`: 0 to `span`, out and back once a lap. */
@@ -48,10 +48,20 @@ export function isReturning<A extends Pick<SwarmAgent, 'phase' | 'endedAt'>>(a: 
   return a.phase === 'done' && a.endedAt !== undefined && returnProgress(now, a.endedAt) < 1
 }
 
-/** The returning bee's column: from where it flew at the finish to `edge`, past the card. */
-export function returnLeft(now: number, endedAt: number, span: number, edge: number): number {
-  const from = beeLeft(endedAt, span)
-  return Math.round(from + (edge - from) * returnProgress(now, endedAt))
+/** A cell of the hive region (the lead's frame down through the agent cards): a row and a column from its top left. */
+export type Spot = { row: number; col: number }
+
+/**
+ * Where the returning bee is: on the straight line from `from` to `to`, rows and
+ * columns advancing together, so it is at `from` at the finish and at `to` once
+ * `returnProgress` is 1. The time is fixed, however far apart the two are.
+ */
+export function returnAt(now: number, endedAt: number, from: Spot, to: Spot): Spot {
+  const t = returnProgress(now, endedAt)
+  return {
+    row: Math.round(from.row + (to.row - from.row) * t),
+    col: Math.round(from.col + (to.col - from.col) * t),
+  }
 }
 
 /** A stretch of bar cells drawn alike; `glow` is the tint of lit cells, absent for the bar's own color. */

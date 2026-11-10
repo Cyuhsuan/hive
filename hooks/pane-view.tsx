@@ -6,9 +6,10 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Swarm, SwarmAgent } from '../types'
 import { ACCENT } from './accent'
-import { BEE, beeLeft, isReturning, returnLeft, spinnerAt, sweptBar } from './animation'
+import { BEE, beeLeft, returnAt, spinnerAt, sweptBar } from './animation'
+import { cardHeight, cardSpots, tallySpot } from './bee-route'
 import { PHASE_LABEL, PHASE_PERCENT, isLive } from './agent-phase'
-import { workflowLine } from './pane-model'
+import { homeBeeCount, returningCards, workflowLine } from './pane-model'
 import type { PaneModel } from './pane-model'
 import { bar, cells, clip, fmtClock, fmtDuration, shortModel } from './text-format'
 import { sourceById } from './workflow'
@@ -92,11 +93,18 @@ export function drawPane(
   const cardW = Math.max(WIDTH_MIN - 2, Math.floor((W - 2 - (cols - 1)) / cols))
   const inner = cardW - 4
 
+  // A card with a ticket is the workflow's; any other is the observing one.
+  const isTicketCardOf = (a: SwarmAgent) => isWorkflowView && a.ticket !== undefined
+  // A ticket card spells out its progress only while it works or has failed.
+  const hasProgressOf = (a: SwarmAgent) => isTicketCardOf(a) && (isLive(a) || a.phase === 'failed')
+
+  const beeSpan = cardW - 4
+
   const card = (a: SwarmAgent) => {
-    // A card with a ticket is the workflow's; any other is the observing one.
-    const isTicketCard = isWorkflowView && a.ticket !== undefined
+    const isTicketCard = isTicketCardOf(a)
     const isRunning = isLive(a)
     const isFailed = a.phase === 'failed'
+    const hasProgress = hasProgressOf(a)
     const frame = isFailed ? 'error' : a.phase === 'done' ? 'success' : 'warning'
     const dot = isFailed ? '✗' : a.phase === 'done' ? '✓' : liveGlyph
     const percent = PHASE_PERCENT[a.phase]
@@ -117,18 +125,15 @@ export function drawPane(
     const barW = Math.max(4, inner - 12)
 
     // The bee lies on the card's top edge, over the frame, in no cell of the card's own.
-    // Between the corners it has `cardW - 2` columns, two of them its own. Leaving, it
-    // flies on to `cardW + 2`, so its two cells lie past the right frame before it is gone.
-    // A frame is painted over what its own Box holds, so the bee is no child of the framed
-    // Box: it is laid over it from the Box around the two, after it, at that Box's top row.
-    const beeSpan = cardW - 4
+    // Between the corners it has `cardW - 2` columns, two of them its own. A frame is
+    // painted over what its own Box holds, so the bee is no child of the framed Box: it
+    // is laid over it from the Box around the two, after it, at that Box's top row.
+    // A bee on its way home is no longer on the card: the hive Box carries it.
     const beeAt = !isAnimated
       ? (isRunning ? 1 : undefined)
       : isRunning
         ? 1 + beeLeft(now, beeSpan)
-        : isReturning(a, now)
-          ? 1 + returnLeft(now, a.endedAt, beeSpan, cardW + 1)
-          : undefined
+        : undefined
 
     return (
       <Box key={a.id} flexDirection="column" width={cardW}>
@@ -154,14 +159,14 @@ export function drawPane(
               )}
             </Text>
           )}
-          {isTicketCard && (isRunning || isFailed) && (
+          {hasProgress && (
             <Text wrap="truncate-end">
               <Text color={frame}>{bar(percent, barW)}</Text>
               <Text dimColor> {String(percent).padStart(3)}% </Text>
               {!isNarrow && <Text>{PHASE_LABEL[a.phase]}</Text>}
             </Text>
           )}
-          {isTicketCard && (isRunning || isFailed) && (
+          {hasProgress && (
             <Text dimColor wrap="truncate-end">
               {clip(a.lastTool ?? '…', inner)}
             </Text>
@@ -191,11 +196,29 @@ export function drawPane(
   const featureBarW = Math.max(6, boxInner - cells(featureTail))
   const isSweeping = isAnimated && live.length > 0 && featurePercent > 0 && featurePercent < 100
   // The lead is the hive: it counts the bees that came home.
-  const leadTally = [
+  // Only the bees that landed are counted; one still flying is counted when it arrives.
+  const tallyOf = (bees: number) => [
     `已派 ${s.agents.length}`,
-    model.finishedAgentCount > 0 ? `${BEE} ${model.finishedAgentCount}` : '',
+    bees > 0 ? `${BEE} ${bees}` : '',
     isWorkflowView ? `已 merge ${model.mergedCount}` : '',
   ].filter(Boolean).join(' · ')
+  const homeBees = homeBeeCount(model, now, isAnimated)
+  const leadTally = tallyOf(homeBees)
+  // The lead's tally sits at the right of its line when a hint stands at the left.
+  const isTallyAtRight = !isNarrow && isWorkflowView
+  // The bees on their way home, laid over the hive: from where each left its card's top
+  // edge to where the tally's bee is, or will be, once it lands.
+  const cardSpot = cardSpots(
+    ordered.map(a => cardHeight(isTicketCardOf(a), hasProgressOf(a))),
+    cols,
+    cardW,
+  )
+  const landing = tallySpot(tallyOf(Math.max(1, homeBees)), boxInner, isTallyAtRight)
+  const flyingBees = returningCards(model, now, isAnimated).map(a => {
+    const spot = cardSpot[ordered.indexOf(a)]!
+    const from = { row: spot.row, col: spot.col + 1 + beeLeft(a.endedAt, beeSpan) }
+    return { id: a.id, at: returnAt(now, a.endedAt, from, landing) }
+  })
   // Narrow, a log line names its ticket by number alone.
   const whoW = isNarrow ? 4 : 14
   const who = (name: string) => {
@@ -237,30 +260,39 @@ export function drawPane(
         </Box>
       )}
 
-      <Box borderStyle="round" borderColor={ACCENT} paddingX={1} flexDirection="column">
-        <Text wrap="truncate-end">
-          <Text bold color={ACCENT}>lead</Text>
-          <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, boxInner - 4)}</Text>
-        </Text>
-        <Box justifyContent="space-between">
-          {!isNarrow && isWorkflowView && <Text dimColor>派票 → merge → review</Text>}
-          <Text>{clip(leadTally, boxInner)}</Text>
+      {/* The lead, its delegates line and its cards in one Box, so a bee flying home is laid over all three, after them. */}
+      <Box flexDirection="column">
+        <Box borderStyle="round" borderColor={ACCENT} paddingX={1} flexDirection="column">
+          <Text wrap="truncate-end">
+            <Text bold color={ACCENT}>lead</Text>
+            <Text dimColor>{clip(`${isNarrow ? '' : ' · main session'} · ${shortModel(s.leadModel)}`, boxInner - 4)}</Text>
+          </Text>
+          <Box justifyContent="space-between">
+            {isTallyAtRight && <Text dimColor>派票 → merge → review</Text>}
+            <Text>{clip(leadTally, boxInner)}</Text>
+          </Box>
         </Box>
-      </Box>
 
-      <Box paddingLeft={2}>
-        <Text dimColor wrap="truncate-end">
-          {s.agents.length === 0
-            ? '│  (還沒派出任何子代理)'
-            : clip(`└─┬─ delegates · ${s.agents.length} forks${live.length ? ` · ${live.length} running` : ''}`, W - 2)}
-        </Text>
-      </Box>
-
-      {s.agents.length > 0 && (
-        <Box flexDirection="row" flexWrap="wrap" columnGap={1} paddingLeft={2}>
-          {ordered.map(card)}
+        <Box paddingLeft={2}>
+          <Text dimColor wrap="truncate-end">
+            {s.agents.length === 0
+              ? '│  (還沒派出任何子代理)'
+              : clip(`└─┬─ delegates · ${s.agents.length} forks${live.length ? ` · ${live.length} running` : ''}`, W - 2)}
+          </Text>
         </Box>
-      )}
+
+        {s.agents.length > 0 && (
+          <Box flexDirection="row" flexWrap="wrap" columnGap={1} paddingLeft={2}>
+            {ordered.map(card)}
+          </Box>
+        )}
+
+        {flyingBees.map(({ id, at }) => (
+          <Box key={`home-${id}`} position="absolute" top={at.row} left={at.col}>
+            <Text>{BEE}</Text>
+          </Box>
+        ))}
+      </Box>
 
       {hiddenDone > 0 && (
         <Box paddingLeft={2}>

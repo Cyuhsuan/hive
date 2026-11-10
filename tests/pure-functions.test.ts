@@ -2,7 +2,8 @@ import { expect, test } from 'claude-code/testing'
 
 import type { AgentPhase, SwarmAgent } from '../types'
 import { phaseOfCall } from '../hooks/agent-phase'
-import { BEE_LAP_MS, beeLeft, returnLeft, returnProgress, sweptBar } from '../hooks/animation'
+import { BEE_LAP_MS, beeLeft, returnAt, returnProgress, sweptBar } from '../hooks/animation'
+import { cardHeight, cardSpots, tallySpot } from '../hooks/bee-route'
 import { bar as barOf, cells, clip } from '../hooks/text-format'
 
 // The pane's pure functions on their own: no pane, no plugin, no mock.
@@ -151,13 +152,51 @@ test('returnProgress runs from 0 at the finish to 1 a second later, and stays 1'
   expect(returnProgress(60_000, 5000)).toBe(1)
 })
 
-test('returnLeft carries the bee from where it was to past the card edge', () => {
-  const span = 10
+test('returnAt flies the bee in a straight line from where it left to where it lands, in a fixed time', () => {
   const endedAt = 1234
-  const edge = 14
-  expect(returnLeft(endedAt, endedAt, span, edge)).toBe(beeLeft(endedAt, span))
-  expect(returnLeft(endedAt + 1000, endedAt, span, edge)).toBe(edge)
-  const mid = returnLeft(endedAt + 500, endedAt, span, edge)
-  expect(mid).toBeGreaterThanOrEqual(Math.min(beeLeft(endedAt, span), edge))
-  expect(mid).toBeLessThanOrEqual(edge)
+  const from = { row: 9, col: 20 }
+  for (const to of [{ row: 2, col: 70 }, { row: 2, col: 3 }, { row: 40, col: 20 }]) {
+    expect(returnAt(endedAt, endedAt, from, to)).toEqual(from)
+    expect(returnAt(endedAt + 1000, endedAt, from, to)).toEqual(to)
+    expect(returnAt(endedAt + 5000, endedAt, from, to)).toEqual(to)
+    // rows and columns both advance, never turning back, as frames go by
+    let last = from
+    for (let t = 0; t <= 1000; t += 60) {
+      const at = returnAt(endedAt + t, endedAt, from, to)
+      expect((at.row - last.row) * Math.sign(to.row - from.row)).toBeGreaterThanOrEqual(0)
+      expect((at.col - last.col) * Math.sign(to.col - from.col)).toBeGreaterThanOrEqual(0)
+      last = at
+    }
+  }
+  expect(returnAt(endedAt + 500, endedAt, { row: 10, col: 0 }, { row: 2, col: 40 })).toEqual({ row: 6, col: 20 })
+})
+
+// ------------------------------------------------------------ the bee's route
+
+test('cardHeight: a ticket card grows only while it works or has failed', () => {
+  expect(cardHeight(true, false)).toBe(3)
+  expect(cardHeight(true, true)).toBe(5)
+  expect(cardHeight(false, false)).toBe(4)
+})
+
+test('cardSpots puts the first row under the delegates line and each later row under the tallest card above it', () => {
+  const spots = cardSpots([5, 3, 3, 4, 3], 2, 38)
+  expect(spots[0]).toEqual({ row: 5, col: 2 })
+  expect(spots[1]).toEqual({ row: 5, col: 41 })
+  // the first row is as tall as its taller card (5)
+  expect(spots[2]).toEqual({ row: 10, col: 2 })
+  expect(spots[3]).toEqual({ row: 10, col: 41 })
+  expect(spots[4]).toEqual({ row: 14, col: 2 })
+  expect(cardSpots([3, 3], 1, 22).map(s => s.row)).toEqual([5, 8])
+  expect(cardSpots([], 2, 38)).toEqual([])
+})
+
+test('tallySpot lands on the bee of the tally, or where it will be', () => {
+  // set at the left: after the lead frame and its padding, past "已派 2 · "
+  expect(tallySpot('已派 2 · 🐝 1', 76, false)).toEqual({ row: 2, col: 2 + cells('已派 2 · ') })
+  // set at the right: the same offset, from where the right-set text begins
+  const text = '已派 2 · 🐝 1 · 已 merge 0'
+  expect(tallySpot(text, 76, true)).toEqual({ row: 2, col: 2 + 76 - cells(text) + cells('已派 2 · ') })
+  // clipped before the bee: it lands on the last cells shown
+  expect(tallySpot('已派 12 · 🐝 3 · 已 merge 10', 6, false).col).toBeLessThanOrEqual(2 + 6 - 2)
 })
