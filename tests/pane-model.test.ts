@@ -155,6 +155,11 @@ test('done: a merged ticket whose face is not resolved counts whole in the perce
   expect(m.doneCount).toBe(1)
 })
 
+test('done: a merged ticket with some checks ticked counts once, as a whole ticket', () => {
+  const s = swarm([ticket('1', { checked: 1, checks: 2 }), ticket('2')], [], ['1'])
+  expect(paneModelOf(s, true).featurePercent).toBe(50)
+})
+
 test('done: the current step moves on when every ticket of the step is merged', () => {
   const s = swarm([ticket('1'), ticket('2'), ticket('3', { step: 2 })], [], ['1', '2'])
   expect(paneModelOf(s, true).currentStep).toBe(2)
