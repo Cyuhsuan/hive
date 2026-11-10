@@ -145,3 +145,36 @@ test('log lines leave out phase changes and keep the last five', () => {
   const m = paneModelOf(swarm([], [], [], lines), true)
   expect(m.logLines.map(l => l.text)).toEqual(['c', 'd', 'e', 'f', 'g'])
 })
+
+// ------------------------------------------------ merged counts as done
+
+test('done: a merged ticket whose face is not resolved counts whole in the percent and the count', () => {
+  const s = swarm([ticket('1', { checked: 0, checks: 2 }), ticket('2')], [], ['1'])
+  const m = paneModelOf(s, true)
+  expect(m.featurePercent).toBe(50)
+  expect(m.resolvedCount).toBe(1)
+})
+
+test('done: the current step moves on when every ticket of the step is merged', () => {
+  const s = swarm([ticket('1'), ticket('2'), ticket('3', { step: 2 })], [], ['1', '2'])
+  expect(paneModelOf(s, true).currentStep).toBe(2)
+})
+
+test('done: every ticket merged or resolved makes the feature done', () => {
+  const s = swarm([ticket('1'), ticket('2', { status: 'resolved', step: 2 })], [], ['1'])
+  const m = paneModelOf(s, true)
+  expect(m.isFeatureDone).toBe(true)
+  expect(m.featurePercent).toBe(100)
+  expect(m.currentStep).toBe(2)
+  expect(paneModelOf(swarm([ticket('1'), ticket('2', { step: 2 })], [], ['1']), true).isFeatureDone).toBe(false)
+})
+
+test('done: a ticket whose blocker is merged but not resolved is ready, not blocked', () => {
+  const s = swarm([ticket('1'), ticket('2', { blockedBy: ['1'], step: 2 })], [], ['1'])
+  expect(stateOf(s, '2')).toBe('ready')
+})
+
+test('done: merged is still drawn as merged and resolved as resolved', () => {
+  const s = swarm([ticket('1'), ticket('2', { status: 'resolved' }), ticket('3', { status: 'resolved' })], [], ['1', '3'])
+  expect(paneModelOf(s, true).ticketStates).toEqual(['merged', 'resolved', 'merged'])
+})

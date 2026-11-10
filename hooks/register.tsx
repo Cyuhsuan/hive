@@ -88,8 +88,9 @@ export const register: Register = (on, options) => {
         if (folder !== undefined) await openFeature($, markdownSource, folder, true)
       }
     } else {
-      // Opening the pane reads the setting, not the tickets: those are read at a timing.
+      // Opening the pane reads the setting, and the tickets only when a batch is already loaded.
       await pickSource($, workflow)
+      if ((await readSwarm($)).feature) await refreshFeature($, workflow)
     }
     await status($, workflow)
     await openPane($)
@@ -167,20 +168,24 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // The lead merging a ticket branch into the integration branch.
+  // The lead merging a ticket branch into the integration branch, or changing an issue: the tickets are read again.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     const s = await readSwarm($)
     if (!isShown(s) || !s.feature) return next(e)
-    const n = sourceById(s.feature.sourceId, workflow).mergedTicket(e.command, s.feature)
-    if (n === undefined) return next(e)
+    const source = sourceById(s.feature.sourceId, workflow)
+    const n = source.mergedTicket(e.command, s.feature)
+    const changesTickets = source.changesTickets?.(e.command) === true
+    if (n === undefined && !changesTickets) return next(e)
     const ran = await next(e)
     if (ran.deny === undefined && ran.isError !== true) {
-      await updateSwarm($, cur => ({
-        ...cur,
-        feature: cur.feature && { ...cur.feature, merged: Array.from(new Set([...cur.feature.merged, n])) },
-      }))
-      await log($, 'lead', `票 ${n} merge 進整合分支`)
+      if (n !== undefined) {
+        await updateSwarm($, cur => ({
+          ...cur,
+          feature: cur.feature && { ...cur.feature, merged: Array.from(new Set([...cur.feature.merged, n])) },
+        }))
+        await log($, 'lead', `票 ${n} merge 進整合分支`)
+      }
       await refreshFeature($, workflow)
     }
 

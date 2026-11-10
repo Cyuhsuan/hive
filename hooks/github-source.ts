@@ -188,5 +188,7 @@ export const githubSource: TicketSource = {
     return feature.tickets.find(t => branches.some(b => new RegExp(`(?<!\\d)${t.number}(?!\\d)`).test(b)))?.number
   },
 
+  changesTickets: command => /\bgh\s+issue\s+(?:close|reopen|edit)\b/.test(command),
+
   emptyText: origin => `#${origin} 底下沒有讀到票`,
 }
