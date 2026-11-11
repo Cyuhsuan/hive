@@ -2,6 +2,10 @@ import { expect, test } from 'claude-code/testing'
 
 import { githubSource } from '../hooks/github-source'
 import type { SourceEnv } from '../hooks/ticket-source'
+import type { Say } from '../types'
+import { zh } from './zh'
+
+const reasonOf = (r: { ok: boolean; reason?: Say }): string | undefined => (r.ok ? undefined : zh(r.reason))
 
 // The GitHub source on its own, with a fake `gh`: the replies below have the
 // shape `gh api repos/<owner>/<repo>/issues/<n>` (and its `/sub_issues` and
@@ -126,7 +130,7 @@ test('load: a failing gh gives a reason, it does not throw', async () => {
   for (const [reply, reason] of cases) {
     const result = await githubSource.load(ghEnv({ 'issues/10': reply }), '10')
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.reason).toMatch(reason)
+    if (!result.ok) expect(zh(result.reason)).toMatch(reason)
   }
   const none = await githubSource.load({ ...ghEnv({}), run: undefined }, '10')
   expect(none.ok).toBe(false)
@@ -174,7 +178,7 @@ test('load: issues named with no spec among them are one feature called 獨立�
   const result = await githubSource.load(standaloneEnv(), 'args:31,30')
   expect(result.ok).toBe(true)
   if (!result.ok) return
-  expect(result.feature.name).toBe('獨立票')
+  expect(zh(result.feature.name)).toBe('獨立票')
   expect(result.feature.sourceId).toBe('github')
   expect(result.feature.tickets.map(t => [t.number, t.title, t.status, t.checked, t.checks, t.step, t.blockedBy])).toEqual([
     ['30', 'Lone A', 'open', 1, 2, 1, []],
@@ -212,7 +216,7 @@ test('load: numbers that do not exist or are pull requests are left out; if none
   expect(some.ok && some.feature.tickets.map(t => t.number)).toEqual(['30'])
   const none = await githubSource.load(standaloneEnv(), 'args:98,97')
   expect(none.ok).toBe(false)
-  if (!none.ok) expect(none.reason).toMatch(/讀不到/)
+  if (!none.ok) expect(zh(none.reason)).toMatch(/讀不到/)
 })
 
 test('load: one failing call fails the whole standalone feature', async () => {
@@ -277,7 +281,7 @@ test('resolveRef: the parent of the issue a prompt names, by the parent endpoint
   expect(await githubSource.resolveRef!(env, 'do #14')).toEqual({ ok: true, ref: { origin: 'standalone:14', ticket: '14', number: '14' } })
   expect(await githubSource.resolveRef!(env, 'no number here')).toEqual({ ok: true })
   const failed = await githubSource.resolveRef!(ghEnv({ 'issues/12/parent': { exitCode: 4, stderr: 'run gh auth login' } }), '#12')
-  expect(failed).toEqual({ ok: false, reason: '`gh` 未登入' })
+  expect(reasonOf(failed)).toBe('`gh` 未登入')
   // a failure that is not "no parent" is a failure, not "none"
   const broken = await githubSource.resolveRef!(ghEnv({ 'issues/12/parent': { exitCode: 1, stderr: 'gh: HTTP 500' } }), '#12')
   expect(broken.ok).toBe(false)
@@ -331,7 +335,7 @@ test('mergedTicket: a branch name with the issue number, only for a ticket of th
 
 const failing = async (reply: Reply, key = 'issues/10') => {
   const r = await githubSource.load(ghEnv({ [key]: reply }), '10')
-  return r.ok ? undefined : r.reason
+  return reasonOf(r)
 }
 
 test('load: a failing gh gives the first non-blank stderr line as the reason, cut at 60 characters', async () => {
@@ -347,7 +351,7 @@ test('load: a failing gh gives the first non-blank stderr line as the reason, cu
 
 test('load: no way to run gh, or a gh that cannot start, is told apart from a gh that is missing', async () => {
   const none = await githubSource.load({ ...ghEnv({}), run: undefined }, '10')
-  expect(none).toEqual({ ok: false, reason: '`gh` 無法執行' })
+  expect(reasonOf(none)).toBe('`gh` 無法執行')
   expect(await failing(new Error('permission denied'))).toBe('`gh` 無法執行')
   expect(await failing(new Error('spawn gh ENOENT'))).toBe('`gh` 不存在')
   expect(await failing({ exitCode: 0, stdout: 'not json' })).toBe('`gh` 回傳的內容讀不懂')
@@ -458,7 +462,7 @@ test('resolveRef: a missing parent whose issue cannot be read is a failure, the 
     ghEnv({ 'issues/13/parent': NO_PARENT, 'issues/13': { exitCode: 4, stderr: 'run gh auth login' } }),
     'do #13',
   )
-  expect(unreadable).toEqual({ ok: false, reason: '`gh` 未登入' })
+  expect(reasonOf(unreadable)).toBe('`gh` 未登入')
   const first = await githubSource.resolveRef!(
     ghEnv({
       'issues/5/parent': { exitCode: 1, stderr: 'gh: HTTP 500 first' },
@@ -467,7 +471,7 @@ test('resolveRef: a missing parent whose issue cannot be read is a failure, the 
     }),
     '#5 and #7',
   )
-  expect(first).toEqual({ ok: false, reason: '`gh` 呼叫失敗：gh: HTTP 500 first' })
+  expect(reasonOf(first)).toBe('`gh` 呼叫失敗：gh: HTTP 500 first')
   // a later number that does resolve wins over the failure before it
   const later = await githubSource.resolveRef!(
     ghEnv({ 'issues/5/parent': { exitCode: 1, stderr: 'gh: HTTP 500' }, 'issues/7/parent': issue(10, 'Spec', 'open') }),
@@ -488,5 +492,5 @@ test('mergedTicket: any of several merged branches may be the ticket', async () 
 })
 
 test('emptyText: names the spec issue', () => {
-  expect(githubSource.emptyText('10')).toBe('#10 底下沒有讀到票')
+  expect(zh(githubSource.emptyText('10'))).toBe('#10 底下沒有讀到票')
 })

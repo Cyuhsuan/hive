@@ -1,4 +1,5 @@
-import type { Feature, Ticket } from '../types'
+import type { Feature, Msg, Ticket } from '../types'
+import { msg } from './i18n'
 
 // A ticket source is where a feature's tickets live. The pane talks to it
 // through this interface alone, so a source whose tickets are not files (a
@@ -26,16 +27,16 @@ export type SourceEnv = {
   now(): Promise<number>
 }
 
-export type LoadResult = { ok: true; feature: Feature } | { ok: false; reason: string }
+export type LoadResult = { ok: true; feature: Feature } | { ok: false; reason: Msg }
 
 /** What a prompt points at when the point must be looked up: the ticket, or why it could not be. */
-export type ResolveResult = { ok: true; ref?: TicketRef } | { ok: false; reason: string }
+export type ResolveResult = { ok: true; ref?: TicketRef } | { ok: false; reason: Msg }
 
 export interface TicketSource {
   /** Stored on a `Feature`, so the pane finds its source again. */
   readonly id: string
   /** How the workflow's status line names this source. */
-  readonly label: string
+  readonly label: Msg
   /** Whether a failed load is told to the person (a remote source can fail; a folder just has no tickets). */
   readonly showsFailure: boolean
   /** Seconds between the re-reads while a subagent runs. */
@@ -68,7 +69,7 @@ export interface TicketSource {
   /** Whether the lead's shell command changes the tickets themselves (a GitHub issue closed, reopened, edited), so they are read again once it succeeds. */
   changesTickets?(command: string): boolean
   /** What the pane says when the feature at `origin` has no tickets. */
-  emptyText(origin: string): string
+  emptyText(origin: string): Msg
 }
 
 /** The numbers of an acceptance list: `- [ ]` and `- [x]` items. */
@@ -184,7 +185,7 @@ const MARKDOWN_ID = 'local-markdown'
 
 export const markdownSource: TicketSource = {
   id: MARKDOWN_ID,
-  label: '本地',
+  label: msg('sourceLocal'),
   showsFailure: false,
   refreshSeconds: 10,
 
@@ -193,7 +194,7 @@ export const markdownSource: TicketSource = {
     try {
       entries = await env.fs.list(issuesDir)
     } catch {
-      return { ok: false, reason: `讀不到 ${issuesDir}` }
+      return { ok: false, reason: msg('folderUnreadable', issuesDir) }
     }
     const files = entries.filter(e => e.kind === 'file' && TICKET_FILE_RE.test(e.name))
     const tickets: Ticket[] = []
@@ -237,5 +238,5 @@ export const markdownSource: TicketSource = {
     return command.match(/\bgit merge\b[^\n]*?ticket-(\d+)/)?.[1]
   },
 
-  emptyText: origin => `${origin} 裡沒有讀到票檔`,
+  emptyText: origin => msg('emptyFolder', origin),
 }

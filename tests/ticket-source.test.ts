@@ -4,6 +4,7 @@ import { githubSource } from '../hooks/github-source'
 import { markdownSource, mergedBranches, parseTicket, ticketName } from '../hooks/ticket-source'
 import type { SourceEnv } from '../hooks/ticket-source'
 import { TRACKER_FILE, mattpocockSkills, sourceById, workflowOf } from '../hooks/workflow'
+import { spoken, zh } from './zh'
 
 // The ticket source is exercised on its own here: no pane, no plugin, only the
 // small environment (files and a clock) it is handed.
@@ -55,7 +56,7 @@ test('load: tickets with titles, blockers, status, acceptance counts and time-st
 test('load: a folder that cannot be listed fails with a reason, it does not throw', async () => {
   const result = await markdownSource.load(env({}), '.scratch/none/issues')
   expect(result.ok).toBe(false)
-  if (!result.ok) expect(result.reason).toContain('.scratch/none/issues')
+  if (!result.ok) expect(zh(result.reason)).toContain('.scratch/none/issues')
 })
 
 test('load: an unreadable ticket is left out of the graph', async () => {
@@ -115,17 +116,17 @@ test('workflow: the tracker file title picks the ticket source', async () => {
   // an empty file is not a local tracker: it cannot be read, so the pane only observes
   const blank = await w.chooseSource(reading('\n\n'))
   expect(blank.source).toBeUndefined()
-  expect(blank.label).toBe('無法辨識')
+  expect(zh(blank.label)).toBe('無法辨識')
 
   const github = await w.chooseSource(reading('# Issue tracker: GitHub\n'))
   expect(github.source).toBe(githubSource)
-  expect(github.label).toBe('GitHub')
+  expect(zh(github.label)).toBe('GitHub')
   const gitlab = await w.chooseSource(reading('# Issue tracker: GitLab\n'))
   expect(gitlab.source).toBeUndefined()
-  expect(gitlab.label).toBe('GitLab（尚未支援）')
+  expect(zh(gitlab.label)).toBe('GitLab（尚未支援）')
   const other = await w.chooseSource(reading('# Tracker of my own\n'))
   expect(other.source).toBeUndefined()
-  expect(other.label).toBe('無法辨識')
+  expect(zh(other.label)).toBe('無法辨識')
 })
 
 test('workflow: the start skill, the setting and the source of a loaded feature', () => {
@@ -192,7 +193,7 @@ test('load: sub-folders, files that are not tickets and look-alike names are lef
 test('load: the feature is named by the folder above issues, however many slashes end the path', async () => {
   const name = async (origin: string) => {
     const r = await markdownSource.load(folder([]), origin)
-    return r.ok ? r.feature.name : r.reason
+    return r.ok ? r.feature.name : zh(r.reason)
   }
   expect(await name('.scratch/f/issues')).toBe('f')
   expect(await name('.scratch/f/issues/')).toBe('f')
@@ -288,7 +289,7 @@ test('changesTickets: only the GitHub source says an issue command changes the t
 })
 
 test('emptyText: names the folder', () => {
-  expect(markdownSource.emptyText('.scratch/f/issues')).toBe('.scratch/f/issues 裡沒有讀到票檔')
+  expect(zh(markdownSource.emptyText('.scratch/f/issues'))).toBe('.scratch/f/issues 裡沒有讀到票檔')
 })
 
 test('workflow: the title is the first non-blank line, trimmed, in any spacing and case', async () => {
@@ -306,18 +307,18 @@ test('workflow: the title is the first non-blank line, trimmed, in any spacing a
     ]) {
       const choice = await w.chooseSource(reading(text))
       expect(choice.source).toBe(source)
-      expect(choice.label).toBe(source ? source.label : 'GitLab（尚未支援）')
+      expect(zh(choice.label)).toBe(source ? zh(source.label) : 'GitLab（尚未支援）')
     }
     // text around the title, or something else on its line, is another title
     for (const text of [`Notes # Issue tracker: ${title}`, `# Issue tracker: ${title} Enterprise`, `intro\n# Issue tracker: ${title}`]) {
-      expect((await w.chooseSource(reading(text))).label).toBe('無法辨識')
+      expect(zh((await w.chooseSource(reading(text))).label)).toBe('無法辨識')
     }
   }
 })
 
 test('workflow: a tracker the workflow cannot read says why', async () => {
   const gitlab = await mattpocockSkills.chooseSource(reading('# Issue tracker: GitLab\n'))
-  expect(gitlab).toEqual({ label: 'GitLab（尚未支援）', reason: '票在 GitLab，尚未支援' })
+  expect(spoken(gitlab)).toEqual({ label: 'GitLab（尚未支援）', reason: '票在 GitLab，尚未支援' })
   const other = await mattpocockSkills.chooseSource(reading('# Something else\n'))
-  expect(other).toEqual({ label: '無法辨識', reason: `${TRACKER_FILE} 的標題無法辨識票來源` })
+  expect(spoken(other)).toEqual({ label: '無法辨識', reason: `${TRACKER_FILE} 的標題無法辨識票來源` })
 })

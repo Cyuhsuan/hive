@@ -5,7 +5,7 @@ import { expect, mock, test } from 'claude-code/testing'
 // `gh api repos/<owner>/<repo>/issues/<n>[/sub_issues|/dependencies/blocked_by]`
 // returns (read from this repo's own issues).
 
-const WF = { options: { workflow: 'mattpocock-skills' } }
+const WF = { options: { workflow: 'mattpocock-skills', language: 'zh-TW' } }
 const TRACKER = 'docs/agents/issue-tracker.md'
 const GITHUB = '# Issue tracker: GitHub\n\nUse gh.\n'
 const LOCAL = '# Issue tracker: Local Markdown\n'

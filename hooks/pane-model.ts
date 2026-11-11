@@ -4,6 +4,8 @@
 
 import type { Feature, Swarm, SwarmAgent, SwarmLogLine, Ticket } from '../types'
 import { isLive } from './agent-phase'
+import { say } from './i18n'
+import type { Strings } from './i18n'
 import { isDone, isEveryTicketDone } from './ticket-done'
 import type { Workflow } from './workflow'
 
@@ -94,7 +96,8 @@ function orderCards(agents: readonly SwarmAgent[], done: readonly SwarmAgent[], 
 
 /** The log draws what moved the work on: a phase change is on the card already. */
 function logLinesOf(log: readonly SwarmLogLine[]): SwarmLogLine[] {
-  return log.filter(line => !line.text.startsWith('→ ')).slice(-LOG_SHOWN)
+  const isPhaseMove = (line: SwarmLogLine) => (typeof line.text === 'string' ? line.text.startsWith('→ ') : line.text.code === 'phaseMoved')
+  return log.filter(line => !isPhaseMove(line)).slice(-LOG_SHOWN)
 }
 
 export function paneModelOf(s: Swarm, isWorkflowView: boolean): PaneModel {
@@ -137,6 +140,8 @@ export function paneModelOf(s: Swarm, isWorkflowView: boolean): PaneModel {
 }
 
 /** The workflow's own line: which workflow, which ticket source, and why its tickets could not be read. */
-export function workflowLine(workflow: Workflow, s: Swarm): string {
-  return `工作流 ${workflow.name} · 票來源 ${s.sourceLabel ?? '尚未判斷'}${s.loadFailure ? `（${s.loadFailure}）` : ''}`
+export function workflowLine(strings: Strings, workflow: Workflow, s: Swarm): string {
+  const label = s.sourceLabel === undefined ? undefined : say(strings, s.sourceLabel)
+  const failure = s.loadFailure === undefined ? undefined : say(strings, s.loadFailure)
+  return strings.workflowLine(workflow.name, label, failure)
 }

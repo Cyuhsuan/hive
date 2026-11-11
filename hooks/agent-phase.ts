@@ -17,18 +17,6 @@ export const PHASE_PERCENT: Record<AgentPhase, number> = {
   failed: 100,
 }
 
-export const PHASE_LABEL: Record<AgentPhase, string> = {
-  spawned: '啟動中',
-  reading: '讀碼',
-  editing: '改碼',
-  testing: '測試',
-  merging: 'merge',
-  committing: 'commit',
-  reviewing: '審查',
-  done: '完成',
-  failed: '失敗',
-}
-
 const TEST_RE = /\b(dotnet test|npm (run )?test|pnpm (run )?test|yarn test|vitest|jest|pytest|go test|cargo test|mvn test|gradle test)\b/
 const MERGE_RE = /\bgit (merge|rebase|pull)\b/
 const COMMIT_RE = /\bgit commit\b/

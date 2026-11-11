@@ -1,151 +1,165 @@
+[English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md)
+
 # hive
 
-一個面板，貼在對話旁邊，即時呈現 session 裡的子代理在做什麼；選用工作流後，還會畫出票、時間步與整體進度。
+A pane beside the chat that shows, live, what the session's subagents are doing; when you opt into a workflow, it also draws the tickets, the steps and the overall progress.
 
-![面板畫面：九張票分成四個時間步，同時有執行中、審查中、啟動中、失敗與完成的子代理](docs/screenshot.png)
+![The pane: nine tickets in four steps, with subagents running, in review, starting, failed and done](docs/screenshot.png)
 
-上圖是 `mattpocock-skills` 工作流下實際畫出的內容轉成的示意圖：兩張票已 merge，四個子代理分別在測試、改碼、審查與啟動中，一個失敗，三個完成。
+The picture above is a mock-up of what the `mattpocock-skills` Workflow actually draws: two tickets merged, four subagents testing, editing, reviewing and starting, one failed, three done.
 
-> **從 0.1 升級的使用者**：0.1 版假設你在跑 implement-spec。0.3 起預設只觀察子代理，要拿回原本的 feature 框、時間步與階段條，請把設定 `workflow` 改成 `mattpocock-skills`（見「[設定](#設定)」）。
+> **Upgrading from 0.1**: 0.1 assumed you run implement-spec. Since 0.3 the pane only observes subagents by default. To get the original Feature box, Steps and phase bar back, set `workflow` to `mattpocock-skills` (see "[Settings](#settings)").
 
-## 安裝
+> **Upgrading from 0.8**: since 0.9 the text the pane generates defaults to English. To keep Traditional Chinese, set `language` to `zh-TW` (see "[Settings](#settings)").
 
-在終端機 session 的提示列輸入：
+## Install
+
+At the prompt of a terminal session, enter:
 
 ```
 /plugin install hive --marketplace Cyuhsuan/hive
 ```
 
-接著按 `y` 加入 marketplace，再選安裝範圍（預設是 user）。
+Then press `y` to add the marketplace and pick the install scope (the default is user).
 
-也可以從 shell 安裝：
+You can also install from the shell:
 
 ```bash
 claude plugin install hive --marketplace Cyuhsuan/hive
 ```
 
-桌面 app 不能執行 `/plugin`：點提示框旁的 +，選 Plugins，用 `Cyuhsuan/hive` 加入 marketplace，再加入 plugin。
+The desktop app cannot run `/plugin`: click the + beside the prompt box, choose Plugins, add the marketplace with `Cyuhsuan/hive`, then add the plugin.
 
-### 相依
+### Requirements
 
-這個 mod 只用 Claude Code 引擎提供的 `claude-code` 模組，不需要 npm 套件、其他 plugin、特定的 agent 類型或 MCP 伺服器，macOS、Linux、Windows 都能用（路徑的 `\` 與 `/` 都認得）。
+This mod uses only the `claude-code` module the Claude Code engine provides. It needs no npm packages, other plugins, particular agent types or MCP servers, and works on macOS, Linux and Windows (both `\` and `/` are recognized in paths).
 
-只有 GitHub 票需要額外的東西：已登入的 `gh`（GitHub CLI）。mod 只透過它讀票，不自行以 HTTP 帶 token。
+Only GitHub tickets need something extra: a logged-in `gh` (the GitHub CLI). The mod reads tickets only through it and never sends an HTTP request with a token itself.
 
-## 使用
+## Usage
 
-| 指令 | 作用 |
+| Command | What it does |
 | --- | --- |
-| `/swarm` | 打開面板，並顯示目前的工作流與票來源 |
-| `/swarm <issues 資料夾>` | 載入那個資料夾的本地票 |
-| `/swarm #N`、`/swarm <issue 網址>` | 以那個 GitHub issue 為起點載入票（沒有上層 spec 的 issue 載入為「獨立票」那一批，見「[GitHub 票](#github-票)」） |
-| `/swarm reset` | 清空紀錄，回到純觀察 |
+| `/swarm` | Opens the pane and shows the current Workflow and Ticket source |
+| `/swarm <issues folder>` | Loads the local tickets in that folder |
+| `/swarm #N`, `/swarm <issue URL>` | Loads tickets starting from that GitHub issue (an issue with no parent spec loads as the "Standalone ticket" batch, see "[GitHub tickets](#github-tickets)") |
+| `/swarm reset` | Clears the record and returns to Observe |
 
-- 面板寬度用滑鼠拖曳面板邊界調整，面板內容會跟著重排。
-- 狀態列會顯示「swarm N 跑 · M 完」；工作流畫面下再接「票 N/M」，與面板的票數一致（已併回整合分支或票面為 resolved 的票都算做完）。
-- 狀態存在 session 的 `$.state`，熱重載不會遺失。
+- Resize the pane by dragging its edge with the mouse; the contents reflow.
+- The status bar shows "swarm N run · M done"; in the Workflow view it is followed by "tickets N/M", matching the pane's ticket count (a ticket merged into the integration branch or resolved on its face counts as done).
+- State is kept in the session's `$.state`, so a hot reload does not lose it.
 
-## 設定
+## Settings
 
-安裝時與 `/config` 都會出現兩個欄位（使用者層級）。
+Three fields appear at install time and in `/config` (user level).
 
-`workflow`：
+`workflow`:
 
-| 值 | 意思 |
+| Value | Meaning |
 | --- | --- |
-| `none`（預設） | 純觀察。不認得任何 skill 或票檔慣例。 |
-| `mattpocock-skills` | 套用內建的 mattpocock-skills 工作流。 |
+| `none` (default) | Observe. Recognizes no skill or ticket-file convention. |
+| `mattpocock-skills` | Applies the built-in mattpocock-skills Workflow. |
 
-`animation`：
+`animation`:
 
-| 值 | 意思 |
+| Value | Meaning |
 | --- | --- |
-| `on`（預設） | 有子代理執行時面板會動，見「[動畫](#動畫)」。 |
-| `off` | 面板靜止：進行中的圖示是 `●`，每 2 秒重畫一次。終端機字型顯示不出 spinner 時也用這個值。 |
+| `on` (default) | The pane moves while a subagent runs, see "[Animation](#animation)". |
+| `off` | The pane is still: the in-progress icon is `●`, redrawn every 2 seconds. Also use this value when the terminal font cannot show the spinner. |
 
-session 進行中改設定會讓 mod 重新載入，新值立刻生效：
+`language`:
 
-- 改成 `none`：工作流畫面的 feature 框消失、回到純觀察，子代理卡與 log 保留。
-- 改成 `mattpocock-skills`：不回頭補認先前錯過的時機，等下一個時機才載入票。
-
-## 動畫
-
-動畫只代表一件事：有子代理正在執行。沒有子代理執行時，面板完全靜止。
-
-![面板動畫：進行中的子代理卡與票圖示同步轉動，feature 進度條有光帶滑過；失敗與完成的卡靜止](docs/animation-loop.gif)
-
-- **子代理卡的狀態點**：還在跑的卡（包含剛派出與審查中的）是一個轉動的 spinner（`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`）；完成與失敗的卡維持 `✓`、`✗`。
-- **票的圖示**：有子代理正在做的票，圖示與那張卡的 spinner 同一格、同步轉動。進行中但沒有子代理在做的票不動。
-- **feature 進度條**：一道柔和的光帶在已填滿的那一段由左往右滑過，約 2 秒一趟，從左端淡入、在前緣淡出，不會照到未完成的部分；進度是 0%、100%，或沒有子代理執行時沒有光帶。
-
-子代理卡的階段進度條與狀態列不動。動畫進行時面板約每 0.06 秒重畫一次，只在面板顯示中才重畫。
-
-## 純觀察
-
-任何子代理被派出都會被記錄。不會自動打開面板，只更新狀態列；輸入 `/swarm` 才打開。
-
-- **lead 框**：主 session 與它的模型，以及已派出幾個子代理。
-- **子代理卡**：標題是子代理的描述與類型；第二行是目前在做什麼（讀、改、測試這類從工具呼叫推估的動作）與工具呼叫次數。有錯誤時出現 `⚠ N err`，失敗的卡排最前、紅框。執行中與失敗的全部列出，完成的只列最近 5 個，其餘收成一行「另有 N 個已完成」。
-- **session log**：最近 5 筆派出、完成與失敗。
-
-`none` 下，`/swarm <issues 資料夾>` 仍會載入那個資料夾的本地票。
-
-## 工作流畫面（`mattpocock-skills`）
-
-### 何時進入
-
-在下列時機之一，面板自動打開並載入票：
-
-1. 主 session 呼叫 `/implement-spec`，或你自己輸入 `/implement-spec`（兩種做法行為相同；再次執行會重置並重新開始：舊的票、已結束的子代理卡與 log 清掉，還在執行的子代理卡留著，但不再對應任何票）；
-2. 派出的子代理 prompt 指到票（`…/issues/NN-*.md`）；
-3. 你輸入 `/swarm <issues 資料夾>`。
-
-由 2 或 3 進入時，先前已記錄的子代理不會因為進入而消失；之後若換成另一批票，已結束的卡才清掉（見下）。票來源是 GitHub 時，這批票全部做完（已併回整合分支或票面 resolved）後，若子代理的 prompt 指到另一份 spec 的票，或指到一張開啟中的獨立票（沒有上層 spec 的 issue），面板會改載那一批票，已結束（完成或失敗）的子代理卡清掉、還在執行的卡與 log 保留；這批還有票沒做完時不換批。例外是獨立票那一批：不管做完沒，prompt 指到另一張獨立票就加入這一批（指到某份 spec 的票則照上面的規則）。票來源是本地票檔時沒有「做完才換」的限制：prompt 指到另一個資料夾的票檔（`…/issues/NN-*.md`），面板就改載那個資料夾，同樣清掉已結束的卡。`/swarm` 指到另一批票（`#N`、issue 網址、資料夾）也是換批，結果相同；重讀同一批、同一份 spec 新增子票、獨立票那一批加入另一張獨立票、載入第一批、載入失敗都不算，卡不動。「換批」以畫面上的那一批為準：設定改成 `none` 後，狀態裡雖然還留著先前的一批票，畫面是純觀察，這時 `/swarm <資料夾>` 算載入第一批，已結束的卡不清。子代理的類型或描述含 implement、review、merg 之類的字樣不會啟動任何東西。一旦進入工作流畫面，就不會自動回到純觀察，直到 `/swarm reset` 或新的 session。
-
-### 畫面內容
-
-在純觀察的內容之上多了：
-
-- **工作流狀態行**：例如「工作流 mattpocock-skills · 票來源 本地」，票來源無法使用時在同一行說明原因。
-- **feature 框**：整體進度條（已併回整合分支或票面 resolved 的票算整張，其餘按勾掉的驗收項目比例算）、票數與目前步驟，下面每個時間步一列。正在做的那一步會寫出票名與驗收數，其他步驟只畫「圖示 + 票號」。
-- **lead 框**多了已 merge 幾張票。
-- **指到票的子代理卡**：標題是票號與票名、所在步驟與耗時；第二行是階段進度條（讀碼 → 改碼 → 測試 → merge → commit）；第三行是最近一次工具呼叫。沒有指到票的子代理仍是純觀察的子代理卡。
-
-票的圖示與顏色，和負責它的子代理卡的狀態點與框色是同一套：
-
-| 圖示 | 意思 |
+| Value | Meaning |
 | --- | --- |
-| `◆` 綠 | 已 merge 進整合分支 |
-| `✓` 綠 | 票面 resolved／子代理完成 |
-| spinner 黃 | 有子代理正在做（`animation` 為 `off` 時是 `●`） |
-| `✗` 紅 | 失敗 |
-| `○` | 可以開始 |
-| `·` 灰 | 被前面的票擋住 |
+| `en` (default) | English. |
+| `zh-TW` | Traditional Chinese. |
+| `ja` | Japanese. |
 
-階段是從子代理的工具呼叫推估的：名稱含 edit／write／replace／insert 的工具算改碼，`dotnet test`、`npm test` 等算測試，`git merge` 算 merge，`git commit` 算 commit。類型名稱含 review 的子代理一律顯示為審查。
+The Language covers the pane, the status bar, the session log, the `/swarm` help and replies, and the labels and failure reasons of the Ticket source; content read in as is, such as ticket titles, subagent descriptions and tool commands, is shown unchanged. A value outside the list counts as unset, that is, English.
 
-面板窄於 40 欄時自動精簡：子代理卡標題只留票號與階段，log 只留票號，框與拓撲線都保留。
+Changing a setting mid-session reloads the mod and the new value takes effect immediately:
 
-### 票來源
+- Changed to `none`: the Feature box of the Workflow view disappears and the pane goes back to Observe; Agent cards and the log stay.
+- Changed to `mattpocock-skills`: it does not go back and pick up what it missed earlier; tickets load at the next trigger.
 
-載入票之前，mod 先讀專案的 `docs/agents/issue-tracker.md`，以第一行標題判斷票來源：
+## Animation
 
-| 第一行 | 結果 |
+The Animation means one thing only: a subagent is running. With no subagent running, the pane is completely still.
+
+![The pane animation: the spinners of running Agent cards and ticket icons turn in sync, a band of light slides across the Feature progress bar; failed and done cards stay still](docs/animation-loop.gif)
+
+- **The status dot of an Agent card**: a card that is still running (including one just dispatched or in review) shows a turning spinner (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`); done and failed cards keep `✓` and `✗`.
+- **The icon of a Ticket**: a ticket that a subagent is working on has its icon in the same cell as that card's spinner, turning in sync. A ticket in progress with no subagent working on it does not move.
+- **The Feature progress bar**: a soft band of light slides left to right across the filled part, about 2 seconds a pass, fading in at the left end and out at the leading edge, and never touching the unfinished part; at 0%, at 100%, or with no subagent running there is no band.
+
+The phase progress bar of an Agent card and the status bar do not move. While the Animation runs the pane redraws about every 0.06 seconds, and only while the pane is shown.
+
+## Observe
+
+Every subagent that is dispatched is recorded. The pane does not open by itself and only the status bar updates; enter `/swarm` to open it.
+
+- **Lead box**: the main session and its model, and how many subagents have been dispatched.
+- **Agent card**: the title is the subagent's description and type; the second line is what it is doing now (reading, editing, testing and the like, estimated from tool calls) and the number of tool calls. When there are errors `⚠ N err` appears, and failed cards sort first with a red frame. All running and failed cards are listed; of the done ones only the latest 5, and the rest collapse into one line, "N more done".
+- **Session log**: the latest 5 dispatches, completions and failures.
+
+Under `none`, `/swarm <issues folder>` still loads the local tickets in that folder.
+
+## Workflow view (`mattpocock-skills`)
+
+### When it starts
+
+At any of these moments the pane opens by itself and loads the tickets:
+
+1. The main session calls `/implement-spec`, or you enter `/implement-spec` yourself (both behave the same; running it again resets and starts over: old tickets, ended Agent cards and the log are cleared, and Agent cards still running stay but no longer correspond to any ticket);
+2. A dispatched subagent's prompt points at a ticket (`…/issues/NN-*.md`);
+3. You enter `/swarm <issues folder>`.
+
+When entered through 2 or 3, subagents recorded earlier do not disappear because of the entry; if a different batch of tickets is later switched to, only then are ended cards cleared (see below). When the Ticket source is GitHub and this batch is entirely done (merged into the integration branch or resolved on its face), if a subagent's prompt points at a ticket of another spec, or at an open Standalone ticket (an issue with no parent spec), the pane loads that batch instead: ended (done or failed) Agent cards are cleared, and running cards and the log are kept; while this batch still has unfinished tickets it does not switch. The exception is the Standalone-ticket batch: whether or not it is done, a prompt that points at another Standalone ticket joins this batch (a ticket of some spec follows the rule above). When the Ticket source is local ticket files there is no "switch only when done" limit: when a prompt points at ticket files in another folder (`…/issues/NN-*.md`), the pane loads that folder, clearing ended cards in the same way. `/swarm` pointing at another batch (`#N`, an issue URL, a folder) is also a switch, with the same result; re-reading the same batch, a new child ticket added to the same spec, a Standalone-ticket batch joined by another Standalone ticket, loading the first batch and a failed load do not count, and the cards stay. "Switching batch" goes by the batch on screen: after the setting is changed to `none`, the state still holds the batch from before but the screen is Observe, so `/swarm <folder>` counts as loading the first batch and ended cards are not cleared. A subagent whose type or description contains words like implement, review or merg starts nothing. Once in the Workflow view it never goes back to Observe by itself, until `/swarm reset` or a new session.
+
+### What it shows
+
+On top of what Observe shows, there is more:
+
+- **Workflow status line**: for example "Workflow mattpocock-skills · Ticket source Local"; when the Ticket source is unavailable the reason is given on the same line.
+- **Feature box**: the overall progress bar (a ticket merged into the integration branch or resolved on its face counts as whole, the rest by the share of acceptance items ticked), the ticket count and the current step, and below it one row per Step. The Step being worked spells out ticket titles and acceptance counts; the other Steps draw only "icon + ticket number".
+- **The Lead box** also shows how many tickets have been merged.
+- **Agent card of a subagent pointed at a ticket**: the title is the ticket number and name, its Step and the elapsed time; the second line is the phase progress bar (reading → editing → testing → merging → committing); the third line is the latest tool call. A subagent not pointed at a ticket is still an Observe Agent card.
+
+A ticket's icon and color are the same set as the status dot and frame color of the Agent card responsible for it:
+
+| Icon | Meaning |
 | --- | --- |
-| `# Issue tracker: Local Markdown`，或檔案不存在 | 本地票：`.scratch/<feature>/issues/NN-*.md` |
-| `# Issue tracker: GitHub` | 票是 GitHub issue，見下節 |
-| `# Issue tracker: GitLab` 或認不出來 | 維持純觀察，狀態行說明原因 |
+| `◆` light green | Merged into the integration branch |
+| `✓` light green | Resolved on its face / subagent done |
+| spinner, yellow | A subagent is working on it (`●` when `animation` is `off`) |
+| `✗` red | Failed |
+| `○` | Ready to start |
+| `·` gray | Blocked by earlier tickets |
 
-這個檔案在每次要載入票時重讀，使用者輸入 `/swarm` 時也會讀；session 開始時不讀。`/swarm reset` 之後重新判斷。
+Phases are estimated from the subagent's tool calls: a tool whose name contains edit/write/replace/insert counts as editing, `dotnet test`, `npm test` and the like as testing, `git merge` as merging, `git commit` as committing. A subagent whose type name contains review is always shown as reviewing.
 
-### GitHub 票
+When the pane is narrower than 40 columns it condenses automatically: an Agent card title keeps only the ticket number and phase, the log keeps only the ticket number, and the boxes and topology lines stay.
 
-- **起點**：一個 spec issue，編號來自 `/implement-spec` 的參數或 `/swarm #N`／`/swarm <issue 網址>`。這批票是它的 sub-issue；沒有 sub-issue 時，是內文以 `Part of #N` 或 `## Parent` 區段指向它的 issue。
-- **獨立票**：沒有上層 spec（沒有 parent，內文也沒有 `Part of #N` 或 `## Parent`）的 issue。同一次工作（從面板重置到下一次重置）裡的獨立票畫在同一批，框名固定為「獨立票」，不和 spec 的票混在同一批；相依、進度、merge、重讀都和 spec 的那一批相同。
-  - **從參數載入**：參數（`/implement-spec`、`/swarm`）裡所有的 `#N`、issue 網址與單獨的數字依出現順序判斷。有 spec（有子票的 issue）或某份 spec 的子票時，載入第一份 spec 的那一批，其餘編號忽略；否則這些票湊成獨立票那一批，只有一張也算。不存在的編號與 PR 略過，全部略過時說明讀不到票。一份還沒拆票的 spec 因此會被畫成一張獨立票。「單獨的數字」指整串參數都是數字（如 `/swarm 30 31`）；和 `#N` 或網址混寫時，單獨的數字不算（`#30 31` 只取 30）。`/swarm #N` 指到獨立票時，若面板上已是獨立票那一批就加入它（`merged`、子代理卡、log 保留），不是重置；起始 skill 則一律從新的一批開始。
-  - **從子代理 prompt 加入**：依出現順序看 prompt 的前三個編號，第一個符合的算數：有上層 spec 的是 spec 的票，沒有上層、開啟中、不是 PR 的是獨立票（已關閉的 issue 與 PR 不會成為獨立票）。
-- **相依與進度**：擋住一張票的票取自 GitHub 原生的 blocked-by 關係；沒有時讀內文 `## Blocked by` 區段的 `#N`，只計入同一批的票。已關閉的 issue 是 resolved；已併回整合分支的票即使還沒關閉也算做完；其餘依內文 `- [ ]`／`- [x]` 計進度。
-- **從子代理 prompt 載入**：還沒載入票時，子代理 prompt 裡的 issue 網址或 `#N` 若查得到 parent，就以 parent 為起點載入；載入後，只有屬於這批票的編號才對上票，其他編號（例如 PR）仍是純觀察的卡。
-- **merge**：主 session 的 merge 指令（分支名含票號，如 `ticket-12`）成功後標記為已 merge；對不上時只依關閉狀態呈現。
-- **重讀**：有子代理執行時每 30 秒重讀一次，子代理結束與偵測到 merge 時立刻再讀；主 session 成功執行 `gh issue close`、`gh issue reopen` 或 `gh issue edit` 後也讀一次（子代理執行的不算）；已載入一批票時，`/swarm` 不帶參數也會重讀。
-- **失敗時**：透過已登入的 `gh` 讀取，只在要載入票時才呼叫；`gh` 不存在、未登入或呼叫失敗時維持純觀察，狀態行寫出原因（例如「票來源 GitHub（`gh` 未登入）」），已載入的票在重讀失敗時保留。
+### Ticket source
+
+Before loading tickets, the mod reads the project's `docs/agents/issue-tracker.md` and judges the Ticket source by its first-line title:
+
+| First line | Result |
+| --- | --- |
+| `# Issue tracker: Local Markdown`, or the file does not exist | Local tickets: `.scratch/<feature>/issues/NN-*.md` |
+| `# Issue tracker: GitHub` | Tickets are GitHub issues, see the next section |
+| `# Issue tracker: GitLab` or not recognized | Stays Observe, and the status line gives the reason |
+
+This file is re-read every time tickets are to be loaded, and also when the user enters `/swarm`; it is not read at session start. It is judged again after `/swarm reset`.
+
+### GitHub tickets
+
+- **Starting point**: a spec issue, whose number comes from the argument of `/implement-spec` or from `/swarm #N` / `/swarm <issue URL>`. This batch of tickets is its sub-issues; when there are no sub-issues, it is the issues whose body points to it with `Part of #N` or a `## Parent` section.
+- **Standalone ticket**: an issue with no parent spec (no parent, and the body has no `Part of #N` or `## Parent`). Standalone tickets in the same piece of work (from a pane reset to the next reset) are drawn in the same batch, whose box is always named "Standalone tickets" and is not mixed with a spec's tickets in one batch; dependencies, progress, merge and re-reading are all the same as for a spec's batch.
+  - **Loading from an argument**: every `#N`, issue URL and bare number in the argument (`/implement-spec`, `/swarm`) is judged in order of appearance. When there is a spec (an issue with child tickets) or a child ticket of some spec, the batch of the first spec is loaded and the other numbers are ignored; otherwise these tickets form the Standalone-ticket batch, even if there is only one. Numbers that do not exist and PRs are skipped, and when all are skipped it says the tickets cannot be read. A spec not yet split into tickets is therefore drawn as one Standalone ticket. "Bare number" means the whole argument is numbers (such as `/swarm 30 31`); mixed with `#N` or a URL, bare numbers do not count (`#30 31` takes only 30). When `/swarm #N` points at a Standalone ticket and the pane is already a Standalone-ticket batch, it joins that batch (`merged`, Agent cards and the log are kept) and does not reset; the starting skill always starts from a new batch.
+  - **Joining from a subagent prompt**: the first three numbers in the prompt are looked at in order of appearance, and the first that matches counts: one with a parent spec is a spec's ticket; one with no parent, open and not a PR is a Standalone ticket (a closed issue or a PR never becomes a Standalone ticket).
+- **Dependencies and progress**: the tickets blocking a ticket come from GitHub's native blocked-by relation; when there is none, the `#N` in the body's `## Blocked by` section are read, counting only tickets in the same batch. A closed issue is resolved; a ticket merged into the integration branch counts as done even if still open; the rest are counted by the body's `- [ ]` / `- [x]`.
+- **Loading from a subagent prompt**: when no tickets are loaded yet, if an issue URL or `#N` in a subagent prompt has a parent that can be looked up, the parent is the starting point of the load; once loaded, only numbers belonging to this batch match a ticket, and other numbers (such as a PR) stay Observe cards.
+- **merge**: after the main session's merge command succeeds (the branch name contains the ticket number, such as `ticket-12`) the ticket is marked merged; when it does not match, the ticket is shown by its closed state only.
+- **Re-reading**: every 30 seconds while a subagent runs, immediately again when a subagent ends and when a merge is detected; also once after the main session successfully runs `gh issue close`, `gh issue reopen` or `gh issue edit` (those run by subagents do not count); when a batch is loaded, `/swarm` without arguments also re-reads.
+- **On failure**: it reads through the logged-in `gh` and calls it only when tickets are to be loaded; when `gh` is missing, not logged in or the call fails it stays Observe and the status line gives the reason (for example "Ticket source GitHub (`gh` is not logged in)"); an already loaded batch is kept when a re-read fails.

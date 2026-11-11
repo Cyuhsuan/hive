@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 declare const console: { log: (...a: unknown[]) => void }
 
-const WF = { options: { workflow: 'mattpocock-skills' } }
+const WF = { options: { workflow: 'mattpocock-skills', language: 'zh-TW' } }
 
 const PANE = {
   plugin: 'hive',
