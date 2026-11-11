@@ -29,7 +29,51 @@ export type SwarmAgent = {
   parentId?: string
 }
 
-export type SwarmLogLine = { at: number; who: string; text: string }
+/**
+ * What the pane says that is its own words, kept as a code and its arguments so
+ * the language is chosen when it is drawn, not when it is stored. An argument
+ * that is a `Say` may itself be a message; any other is a plain value.
+ */
+export type MsgArgs = {
+  // session log
+  spawned: [type: string, model: string, isBackground: boolean]
+  phaseMoved: [phase: AgentPhase]
+  ticketMerged: [ticket: string]
+  /** `reason` is empty for an ordinary answer. */
+  agentEnded: [isFailed: boolean, duration: string, tools: number, reason: string]
+  sourceReadFailed: [reason: Say]
+  ticketResolved: [checked: number, checks: number]
+  featureRead: [name: Say, tickets: number, steps: number]
+  workflowStarted: [skill: string]
+  // ticket sources: labels, why no tickets, why a read failed, what an empty batch says
+  sourceLocal: []
+  sourceGithub: []
+  sourceGitlab: []
+  sourceUnrecognized: []
+  gitlabUnsupported: []
+  trackerUnrecognized: [file: string]
+  folderUnreadable: [folder: string]
+  needSpecRef: []
+  ghNotLoggedIn: []
+  ghOffline: []
+  /** `first` is the first line of what `gh` said, as it said it. */
+  ghFailed: [first: string]
+  ghCannotRun: []
+  ghMissing: []
+  ghUnreadable: []
+  ticketsNotFound: [numbers: number[]]
+  emptyFolder: [folder: string]
+  emptySpec: [number: number]
+  emptyStandalone: []
+  standaloneName: []
+}
+
+export type Msg = { [K in keyof MsgArgs]: { code: K; args: MsgArgs[K] } }[keyof MsgArgs]
+
+/** A message, or the text an earlier version stored, which is shown as it was. */
+export type Say = string | Msg
+
+export type SwarmLogLine = { at: number; who: string; text: Say }
 
 /** One ticket of the feature; for local markdown, the file `issues/NN-slug.md`; for GitHub, an issue (`slug` empty, `number` not padded). */
 export type Ticket = {
@@ -50,7 +94,7 @@ export type Feature = {
   sourceId: string
   /** What the source loaded from: for local markdown, the issues folder (relative or absolute); for GitHub, the spec issue's number, or `standalone:<n>,<n>` for the standalone tickets of one piece of work. */
   origin: string
-  name: string
+  name: Say
   tickets: Ticket[]
   /** Ticket numbers the lead has merged into the integration branch. */
   merged: string[]
@@ -71,13 +115,13 @@ export type Swarm = {
   log: SwarmLogLine[]
   feature?: Feature
   /** The ticket source the tracker setting named, as the status line says it. */
-  sourceLabel?: string
+  sourceLabel?: Say
   /** The id of that ticket source, when it is one the workflow reads. */
   sourceId?: string
   /** Why the last load failed, as the status line says it after the label; the tickets loaded before stay. */
-  loadFailure?: string
+  loadFailure?: Say
   /** Why no tickets are loaded, when the workflow cannot read tickets from the ticket source. */
-  noTicketsReason?: string
+  noTicketsReason?: Say
   /**
    * What a source that failed to load was reading, so a scheduled re-read tries
    * it again when no feature is loaded yet.

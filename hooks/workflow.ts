@@ -1,4 +1,6 @@
+import type { Msg } from '../types'
 import { githubSource } from './github-source'
+import { msg } from './i18n'
 import { markdownSource } from './ticket-source'
 import type { TicketSource } from './ticket-source'
 
@@ -8,9 +10,9 @@ import type { TicketSource } from './ticket-source'
 // here is read from the person's settings.
 
 export type SourceChoice =
-  | { source: TicketSource; label: string }
+  | { source: TicketSource; label: Msg }
   /** The ticket source the setting names is one the workflow cannot read tickets from (yet). */
-  | { source?: undefined; label: string; reason: string }
+  | { source?: undefined; label: Msg; reason: Msg }
 
 export type Workflow = {
   name: string
@@ -46,9 +48,9 @@ export const mattpocockSkills: Workflow = {
       return { source: githubSource, label: githubSource.label }
     }
     if (/^#\s*Issue tracker:\s*GitLab$/i.test(title)) {
-      return { label: 'GitLab（尚未支援）', reason: '票在 GitLab，尚未支援' }
+      return { label: msg('sourceGitlab'), reason: msg('gitlabUnsupported') }
     }
-    return { label: '無法辨識', reason: `${TRACKER_FILE} 的標題無法辨識票來源` }
+    return { label: msg('sourceUnrecognized'), reason: msg('trackerUnrecognized', TRACKER_FILE) }
   },
 }
 

@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-const WF = { options: { workflow: 'mattpocock-skills' } }
+const WF = { options: { workflow: 'mattpocock-skills', language: 'zh-TW' } }
 
 const PANE = {
   plugin: 'hive',

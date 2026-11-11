@@ -4,9 +4,9 @@ import { expect, mock, test } from 'claude-code/testing'
 // turn together, a light crosses the feature bar's filled cells, and with no
 // subagent live (or the setting `off`) the pane is still.
 
-const ON = { options: { workflow: 'mattpocock-skills' } }
-const OFF = { options: { workflow: 'mattpocock-skills', animation: 'off' } }
-const OBSERVE = { options: { workflow: 'none' } }
+const ON = { options: { workflow: 'mattpocock-skills', language: 'zh-TW' } }
+const OFF = { options: { workflow: 'mattpocock-skills', language: 'zh-TW', animation: 'off' } }
+const OBSERVE = { options: { workflow: 'none', language: 'zh-TW' } }
 
 const START = 1_700_000_000_000
 const FRAME_MS = 120

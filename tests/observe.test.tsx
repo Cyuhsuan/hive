@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-const WF = { options: { workflow: 'mattpocock-skills' } }
-const NONE = { options: { workflow: 'none' } }
+const WF = { options: { workflow: 'mattpocock-skills', language: 'zh-TW' } }
+const NONE = { options: { workflow: 'none', language: 'zh-TW' } }
 const TRACKER = 'docs/agents/issue-tracker.md'
 
 const PANE = {
@@ -100,7 +100,7 @@ test('the setting left out is none: /implement-spec starts nothing and nothing i
   expect(world.reads).toEqual([])
 })
 
-test('a value outside the options counts as unset, so none', { options: { workflow: 'auto' } }, async ($, on) => {
+test('a value outside the options counts as unset, so none', { options: { workflow: 'auto', language: 'zh-TW' } }, async ($, on) => {
   const world = newWorld(LOCAL)
   engine(on, world)
   await start($)

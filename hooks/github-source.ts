@@ -1,4 +1,5 @@
-import type { Feature, Ticket } from '../types'
+import type { Feature, Msg, Say, Ticket } from '../types'
+import { msg } from './i18n'
 import { assignSteps, countChecks, mergedBranches } from './ticket-source'
 import type { LoadResult, ResolveResult, SourceEnv, TicketSource } from './ticket-source'
 
@@ -17,27 +18,27 @@ type GhIssue = {
 }
 
 /** `isMissing`: GitHub answered 404, the thing asked for is not there (as opposed to a call that failed). */
-type Gh<T> = { ok: true; data: T } | { ok: false; reason: string; isMissing?: boolean }
+type Gh<T> = { ok: true; data: T } | { ok: false; reason: Msg; isMissing?: boolean }
 
 const REPO = 'repos/{owner}/{repo}'
 
 /** A short, human reason a `gh` call failed. */
-function reasonOf(exitCode: number, stderr: string): string {
-  if (/gh auth login|not logged in|authentication|GH_TOKEN|HTTP 401|bad credentials/i.test(stderr)) return '`gh` 未登入'
-  if (/could not resolve|connection|network|timeout|timed out|dial tcp|offline|no such host/i.test(stderr)) return '`gh` 連不上 GitHub'
+function reasonOf(exitCode: number, stderr: string): Msg {
+  if (/gh auth login|not logged in|authentication|GH_TOKEN|HTTP 401|bad credentials/i.test(stderr)) return msg('ghNotLoggedIn')
+  if (/could not resolve|connection|network|timeout|timed out|dial tcp|offline|no such host/i.test(stderr)) return msg('ghOffline')
   const first = stderr.split('\n').find(l => l.trim() !== '')?.trim() ?? `exit ${exitCode}`
-  return `\`gh\` 呼叫失敗：${first.length > 60 ? `${first.slice(0, 59)}…` : first}`
+  return msg('ghFailed', first.length > 60 ? `${first.slice(0, 59)}…` : first)
 }
 
 /** Runs `gh <args>` and parses its JSON; never throws. */
 async function gh<T>(env: SourceEnv, args: readonly string[]): Promise<Gh<T>> {
-  if (!env.run) return { ok: false, reason: '`gh` 無法執行' }
+  if (!env.run) return { ok: false, reason: msg('ghCannotRun') }
   let result
   try {
     result = await env.run(['gh', ...args])
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return { ok: false, reason: /ENOENT|not found|no such file|cannot find|spawn/i.test(message) ? '`gh` 不存在' : '`gh` 無法執行' }
+    return { ok: false, reason: /ENOENT|not found|no such file|cannot find|spawn/i.test(message) ? msg('ghMissing') : msg('ghCannotRun') }
   }
   if (result.exitCode !== 0) {
     return { ok: false, reason: reasonOf(result.exitCode, result.stderr), isMissing: /\(HTTP 404\)/.test(result.stderr) }
@@ -45,7 +46,7 @@ async function gh<T>(env: SourceEnv, args: readonly string[]): Promise<Gh<T>> {
   try {
     return { ok: true, data: JSON.parse(result.stdout) as T }
   } catch {
-    return { ok: false, reason: '`gh` 回傳的內容讀不懂' }
+    return { ok: false, reason: msg('ghUnreadable') }
   }
 }
 
@@ -94,7 +95,7 @@ const GITHUB_ID = 'github'
 // the one place that knows the shapes.
 const STANDALONE_PREFIX = 'standalone:'
 const ARGS_PREFIX = 'args:'
-const STANDALONE_NAME = '獨立票'
+const STANDALONE_NAME = msg('standaloneName')
 
 type Origin = { kind: 'spec'; number: number } | { kind: 'standalone'; numbers: number[] } | { kind: 'args'; numbers: number[] }
 
@@ -150,7 +151,7 @@ async function childrenOf(env: SourceEnv, n: number, listAll: () => Promise<Gh<G
 }
 
 /** A feature of `issues`, already read. */
-async function featureOf(env: SourceEnv, origin: string, name: string, issues: readonly GhIssue[]): Promise<LoadResult> {
+async function featureOf(env: SourceEnv, origin: string, name: Say, issues: readonly GhIssue[]): Promise<LoadResult> {
   const tickets = await ticketsOf(env, issues)
   if (!tickets.ok) return tickets
   return { ok: true, feature: { sourceId: GITHUB_ID, origin, name, tickets: tickets.data, merged: [], loadedAt: await env.now() } }
@@ -217,7 +218,7 @@ async function loadNamed(env: SourceEnv, numbers: readonly number[]): Promise<Lo
     if (children.data.length > 0) return loadSpec(env, n, children.data)
     standalones.push(issue)
   }
-  if (standalones.length === 0) return { ok: false, reason: `讀不到票：${numbers.map(n => `#${n}`).join('、')} 不存在或是 PR` }
+  if (standalones.length === 0) return { ok: false, reason: msg('ticketsNotFound', [...numbers]) }
   return standaloneFeature(env, standalones)
 }
 
@@ -229,7 +230,7 @@ function numbersOfArgs(args: string): number[] {
 
 export const githubSource: TicketSource = {
   id: GITHUB_ID,
-  label: 'GitHub',
+  label: msg('sourceGithub'),
   showsFailure: true,
   refreshSeconds: 30,
 
@@ -266,7 +267,7 @@ export const githubSource: TicketSource = {
   mayNameTicket: text => numbersOfText(text).length > 0,
 
   async resolveRef(env, text): Promise<ResolveResult> {
-    let failure: string | undefined
+    let failure: Msg | undefined
     for (const n of numbersOfText(text).slice(0, 3)) {
       const found = await parentOf(env, n)
       if (!found.ok) {
@@ -293,6 +294,6 @@ export const githubSource: TicketSource = {
 
   emptyText(origin) {
     const parsed = parseOrigin(origin)
-    return parsed.kind === 'spec' ? `#${parsed.number} 底下沒有讀到票` : '沒有讀到獨立票'
+    return parsed.kind === 'spec' ? msg('emptySpec', parsed.number) : msg('emptyStandalone')
   },
 }

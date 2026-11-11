@@ -1,6 +1,6 @@
 {
   "name": "hive",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "子代理面板：預設只觀察子代理的動作與結果；選用 mattpocock-skills 工作流時，再畫出票、時間步與進度。",
   "types": "./types/index.d.ts",
   "license": "MIT",
@@ -10,17 +10,24 @@
   "userConfig": {
     "workflow": {
       "type": "string",
-      "title": "工作流",
-      "description": "none：只觀察子代理；mattpocock-skills：套用 mattpocock-skills 的票與時間步畫面",
+      "title": "Workflow",
+      "description": "none: only observe subagents; mattpocock-skills: draw the tickets and steps of the mattpocock-skills workflow",
       "options": ["none", "mattpocock-skills"],
       "default": "none"
     },
     "animation": {
       "type": "string",
-      "title": "動畫",
-      "description": "on：有子代理執行時，狀態點、票圖示與 feature 進度條會動；off：面板靜止",
+      "title": "Animation",
+      "description": "on: while a subagent runs, the status dots, ticket icons and feature bar move; off: the pane stays still",
       "options": ["on", "off"],
       "default": "on"
+    },
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "The language of the pane's own text: en (English), zh-TW (繁體中文), ja (日本語)",
+      "options": ["en", "zh-TW", "ja"],
+      "default": "en"
     }
   }
 }

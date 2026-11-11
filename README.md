@@ -8,6 +8,8 @@
 
 > **從 0.1 升級的使用者**：0.1 版假設你在跑 implement-spec。0.3 起預設只觀察子代理，要拿回原本的 feature 框、時間步與階段條，請把設定 `workflow` 改成 `mattpocock-skills`（見「[設定](#設定)」）。
 
+> **從 0.8 升級的使用者**：0.9 起面板自己產生的文字預設改為英文。要維持繁體中文，請把設定 `language` 設為 `zh-TW`（見「[設定](#設定)」）。
+
 ## 安裝
 
 在終端機 session 的提示列輸入：
@@ -47,7 +49,7 @@ claude plugin install hive --marketplace Cyuhsuan/hive
 
 ## 設定
 
-安裝時與 `/config` 都會出現兩個欄位（使用者層級）。
+安裝時與 `/config` 都會出現三個欄位（使用者層級）。
 
 `workflow`：
 
@@ -62,6 +64,16 @@ claude plugin install hive --marketplace Cyuhsuan/hive
 | --- | --- |
 | `on`（預設） | 有子代理執行時面板會動，見「[動畫](#動畫)」。 |
 | `off` | 面板靜止：進行中的圖示是 `●`，每 2 秒重畫一次。終端機字型顯示不出 spinner 時也用這個值。 |
+
+`language`：
+
+| 值 | 意思 |
+| --- | --- |
+| `en`（預設） | 英文。 |
+| `zh-TW` | 繁體中文。 |
+| `ja` | 日文。 |
+
+語系涵蓋面板、狀態列、session log、`/swarm` 的說明與回覆、票來源的標籤與失敗原因；票名、子代理的描述、工具指令這些讀進來的內容照原樣呈現。清單以外的值視為未設定，也就是英文。
 
 session 進行中改設定會讓 mod 重新載入，新值立刻生效：
 

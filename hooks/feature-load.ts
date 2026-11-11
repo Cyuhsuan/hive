@@ -1,7 +1,8 @@
 import type { EngineInterface } from 'claude-code'
 
-import type { Swarm } from '../types'
+import type { Msg, Swarm } from '../types'
 import { isLive } from './agent-phase'
+import { isSameSay, msg } from './i18n'
 import { EMPTY, isWorkflowShown, log, readSwarm, updateSwarm } from './swarm-state'
 import { ticketName } from './ticket-source'
 import { isEveryTicketDone } from './ticket-done'
@@ -26,7 +27,7 @@ function chooseSource($: EngineInterface, workflow: Workflow): Promise<SourceCho
 }
 
 /** Tells the person a source could not be read: the status line says why, and the log once. The tickets already loaded stay. */
-export async function reportFailure($: EngineInterface, source: TicketSource, origin: string | undefined, reason: string) {
+export async function reportFailure($: EngineInterface, source: TicketSource, origin: string | undefined, reason: Msg) {
   const at = await $.clock.now()
   const before = (await readSwarm($)).loadFailure
   await updateSwarm($, s => ({
@@ -35,7 +36,7 @@ export async function reportFailure($: EngineInterface, source: TicketSource, or
     pending: origin !== undefined && !s.feature ? { sourceId: source.id, origin } : s.pending,
     failedAt: at,
   }))
-  if (before !== reason) await log($, 'lead', `票來源讀取失敗：${reason}`)
+  if (!isSameSay(before, reason)) await log($, 'lead', msg('sourceReadFailed', reason))
 }
 
 /**
@@ -72,7 +73,7 @@ export async function pickSource($: EngineInterface, workflow: Workflow | undefi
     loadFailure: s.sourceId === choice.source?.id ? s.loadFailure : undefined,
     noTicketsReason: reason,
   }))
-  if (reason && reason !== before) await log($, 'lead', reason)
+  if (reason && !isSameSay(reason, before)) await log($, 'lead', reason)
   return choice
 }
 
@@ -129,12 +130,12 @@ export async function loadFeature($: EngineInterface, source: TicketSource, orig
       for (const t of loaded.tickets) {
         const old = before.tickets.find(o => o.number === t.number)
         if (old && old.status !== 'resolved' && t.status === 'resolved') {
-          await log($, ticketName(t), `票面 Status → resolved（${t.checked}/${t.checks} 驗收）`)
+          await log($, ticketName(t), msg('ticketResolved', t.checked, t.checks))
         }
       }
     } else {
       const steps = Math.max(0, ...loaded.tickets.map(t => t.step))
-      await log($, 'lead', `讀到 ${loaded.name}：${loaded.tickets.length} 張票 · ${steps} 個時間步`)
+      await log($, 'lead', msg('featureRead', loaded.name, loaded.tickets.length, steps))
     }
     return true
   }
@@ -158,7 +159,7 @@ export async function beginWorkflow($: EngineInterface, workflow: Workflow, skil
     sourceId: s.sourceId,
     agents: s.agents.filter(isLive).map(({ ticket: _ticket, ticketNumber: _number, ...a }) => a),
   }))
-  await log($, 'lead', `/${skill} 開始，等待派票`)
+  await log($, 'lead', msg('workflowStarted', skill))
   const origin = source.originOfArgs(args)
   // With no spec named the workflow waits for tickets; with one, it begins when that is read.
   if (origin !== undefined && !(await loadFeature($, source, origin, workflow))) return false

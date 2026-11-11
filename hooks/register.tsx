@@ -1,8 +1,9 @@
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Swarm, SwarmAgent } from '../types'
-import { PHASE_LABEL, describeCall, isLive, phaseOfCall, whoOf } from './agent-phase'
+import { describeCall, isLive, phaseOfCall, whoOf } from './agent-phase'
 import { beginWorkflow, enterWorkflow, loadFeature, openFeature, pickSource, refreshFeature, reportFailure, ticketOfPrompt } from './feature-load'
+import { msg, stringsOf } from './i18n'
 import { paneModelOf, workflowLine } from './pane-model'
 import { drawPane } from './pane-view'
 import { EMPTY, PANE, TITLE, isWorkflowShown, log, patchAgent, readSwarm, status, updateSwarm } from './swarm-state'
@@ -35,6 +36,8 @@ async function beginAndOpen($: EngineInterface, workflow: Workflow, skill: strin
 export const register: Register = (on, options) => {
   // The setting is read once per load: changing it reloads the module.
   const workflow: Workflow | undefined = workflowOf(options['workflow'])
+  // A value outside the manifest's options is none, so English.
+  const strings = stringsOf(options['language'])
   const isShown = (s: Swarm) => isWorkflowShown(s, workflow)
   // `off` is the pane as it was before it moved: the same glyphs, drawn at the clock's own pace.
   const isAnimated = options['animation'] !== 'off'
@@ -42,7 +45,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'swarm',
-      description: '打開子代理面板（/swarm reset 清空；/swarm <issues 資料夾>、/swarm #N、/swarm <issue 網址> 載入那批票）',
+      description: strings.commandDescription,
     })
     // Keep elapsed times moving while anything runs, and re-read the tickets
     // now and then so the feature bar follows what the implementers write.
@@ -84,7 +87,7 @@ export const register: Register = (on, options) => {
         const choice = await pickSource($, workflow)
         if (choice?.source) {
           const origin = choice.source.originOfCommand(args)
-          if (origin === undefined) await reportFailure($, choice.source, undefined, '要帶 spec issue 的編號或網址')
+          if (origin === undefined) await reportFailure($, choice.source, undefined, msg('needSpecRef'))
           else await openFeature($, choice.source, origin, workflow, false)
         }
       } else {
@@ -97,12 +100,11 @@ export const register: Register = (on, options) => {
       await pickSource($, workflow)
       if ((await readSwarm($)).feature) await refreshFeature($, workflow)
     }
-    await status($, workflow)
+    await status($, workflow, strings)
     await openPane($)
 
     const s = await readSwarm($)
-    const line = workflow ? ` ${workflowLine(workflow, s)}` : ''
-    return { text: `Hive pane opened.${line}` }
+    return { text: strings.paneOpened(workflow ? workflowLine(strings, workflow, s) : undefined) }
   })
 
   // The workflow begins: its start skill was invoked, by the lead through the Skill tool or typed by the person.
@@ -146,12 +148,12 @@ export const register: Register = (on, options) => {
       leadModel: e.parentAgentId === undefined ? e.parentModel : s.leadModel,
       agents: [...s.agents.filter(a => a.id !== agent.id), agent],
     }))
-    await log($, whoOf(agent), `派出 ${shortType(agent.type)} · ${shortModel(agent.model)}${agent.isBackground ? ' · 背景' : ''}`)
+    await log($, whoOf(agent), msg('spawned', shortType(agent.type), shortModel(agent.model), agent.isBackground))
     if (load && (await loadFeature($, load.source, load.origin, workflow))) {
       await enterWorkflow($, false)
       if (!shown) await openPane($)
     }
-    await status($, workflow)
+    await status($, workflow, strings)
 
     return started
   }).catch((_$, e, next) => next(e))
@@ -180,10 +182,10 @@ export const register: Register = (on, options) => {
           ...cur,
           feature: cur.feature && { ...cur.feature, merged: Array.from(new Set([...cur.feature.merged, n])) },
         }))
-        await log($, 'lead', `票 ${n} merge 進整合分支`)
+        await log($, 'lead', msg('ticketMerged', n))
       }
       await refreshFeature($, workflow)
-      await status($, workflow)
+      await status($, workflow, strings)
     }
 
     return ran
@@ -207,7 +209,7 @@ export const register: Register = (on, options) => {
     const lastTool = describeCall(tool, args)
     await patchAgent($, agent.id, a => ({ ...a, phase, tools: a.tools + 1, lastTool }))
     if (phase !== agent.phase) {
-      await log($, whoOf(agent), `→ ${PHASE_LABEL[phase]}`)
+      await log($, whoOf(agent), msg('phaseMoved', phase))
     }
 
     const ran = await next(e)
@@ -236,13 +238,9 @@ export const register: Register = (on, options) => {
       endedAt: at,
       tokens,
     }))
-    await log(
-      $,
-      whoOf(agent),
-      `${isFailed ? '失敗' : '完成'} · ${fmtDuration(e.durationMs)} · ${agent.tools} 次工具${e.reason === 'answer' ? '' : ` · ${e.reason}`}`,
-    )
+    await log($, whoOf(agent), msg('agentEnded', isFailed, fmtDuration(e.durationMs), agent.tools, e.reason === 'answer' ? '' : e.reason))
     if (isShown(await readSwarm($))) await refreshFeature($, workflow)
-    await status($, workflow)
+    await status($, workflow, strings)
 
     return next(e)
   })
@@ -252,6 +250,6 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const s = await readSwarm($)
     const now = await $.clock.now()
-    return drawPane($, e, { s, model: paneModelOf(s, isShown(s)), now, workflow, isAnimated })
+    return drawPane($, e, { s, model: paneModelOf(s, isShown(s)), now, workflow, isAnimated, strings })
   })
 }

@@ -1,8 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { Swarm, SwarmAgent, SwarmLogLine } from '../types'
+import type { Say, Swarm, SwarmAgent, SwarmLogLine } from '../types'
 import { isLive } from './agent-phase'
+import type { Strings } from './i18n'
 import { isDone } from './ticket-done'
 import type { Workflow } from './workflow'
 
@@ -27,7 +28,7 @@ export async function updateSwarm($: EngineInterface, fn: (s: Swarm) => Swarm) {
   await update($, swarm, fn)
 }
 
-export async function log($: EngineInterface, who: string, text: string) {
+export async function log($: EngineInterface, who: string, text: Say) {
   const at = await $.clock.now()
   const line: SwarmLogLine = { at, who, text }
   await update($, swarm, s => ({ ...s, log: [...s.log, line].slice(-60) }))
@@ -44,7 +45,7 @@ export async function patchAgent(
   }))
 }
 
-function refreshStatus($: EngineInterface, s: Swarm, hasTickets: boolean) {
+function refreshStatus($: EngineInterface, s: Swarm, hasTickets: boolean, strings: Strings) {
   if (s.mode === 'observe' && s.agents.length === 0) {
     $.ui.status(undefined)
     return
@@ -53,8 +54,8 @@ function refreshStatus($: EngineInterface, s: Swarm, hasTickets: boolean) {
   const done = s.agents.filter(a => a.phase === 'done').length
   const failed = s.agents.filter(a => a.phase === 'failed').length
   const f = hasTickets ? s.feature : undefined
-  const feat = f && f.tickets.length ? ` · 票 ${f.tickets.filter(t => isDone(t, new Set(f.merged))).length}/${f.tickets.length}` : ''
-  $.ui.status(`swarm ${live} 跑 · ${done} 完${failed ? ` · ${failed} 敗` : ''}${feat}`)
+  const tickets = f && f.tickets.length ? { done: f.tickets.filter(t => isDone(t, new Set(f.merged))).length, total: f.tickets.length } : undefined
+  $.ui.status(strings.statusLine(live, done, failed, tickets))
 }
 
 /** The workflow screen is up: a timing fired, and the workflow (or `/swarm <folder>`) is still wanted. */
@@ -62,7 +63,7 @@ export function isWorkflowShown(s: Swarm, workflow: Workflow | undefined): boole
   return s.mode === 'workflow' && (s.isManual === true || workflow !== undefined)
 }
 
-export async function status($: EngineInterface, workflow: Workflow | undefined) {
+export async function status($: EngineInterface, workflow: Workflow | undefined, strings: Strings) {
   const s = await read($, swarm)
-  refreshStatus($, s, isWorkflowShown(s, workflow))
+  refreshStatus($, s, isWorkflowShown(s, workflow), strings)
 }
