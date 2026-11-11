@@ -6,7 +6,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Swarm, SwarmAgent } from '../types'
 import { ACCENT } from './accent'
-import { BEE, beeLeft, isReturning, returnLeft, spinnerAt, sweptBar } from './animation'
+import { spinnerAt, sweptBar } from './animation'
 import { PHASE_LABEL, PHASE_PERCENT, isLive } from './agent-phase'
 import { workflowLine } from './pane-model'
 import type { PaneModel } from './pane-model'
@@ -43,6 +43,7 @@ export function drawPane(
   const boxInner = W - 4 // a frame and one cell of padding each side
 
   const { live, done, failed, feature, tickets, ticketStates, isWorkflowView, isFeatureDone, currentStep, stepCount, ordered, hiddenDone, logLines, featurePercent, doneCount } = model
+
   // A ticket is `running` only with a live subagent behind it, so its glyph turns with that card's.
   const liveGlyph = isAnimated ? spinnerAt(now) : '●'
   const stateGlyph = { merged: '◆', resolved: '✓', running: liveGlyph, failed: '✗', ready: '○', blocked: '·' } as const
@@ -116,61 +117,41 @@ export function drawPane(
     ].filter(Boolean).join(' ')
     const barW = Math.max(4, inner - 12)
 
-    // The bee lies on the card's top edge, over the frame, in no cell of the card's own.
-    // Between the corners it has `cardW - 2` columns, two of them its own. Leaving, it
-    // flies on to `cardW + 2`, so its two cells lie past the right frame before it is gone.
-    // A frame is painted over what its own Box holds, so the bee is no child of the framed
-    // Box: it is laid over it from the Box around the two, after it, at that Box's top row.
-    const beeSpan = cardW - 4
-    const beeAt = !isAnimated
-      ? (isRunning ? 1 : undefined)
-      : isRunning
-        ? 1 + beeLeft(now, beeSpan)
-        : isReturning(a, now)
-          ? 1 + returnLeft(now, a.endedAt, beeSpan, cardW + 1)
-          : undefined
-
     return (
-      <Box key={a.id} flexDirection="column" width={cardW}>
-        <Box
-          flexDirection="column"
-          flexGrow={1}
-          borderStyle="round"
-          borderColor={frame}
-          paddingX={1}
-        >
-          <Box justifyContent="space-between">
-            <Text bold={isFailed} wrap="truncate-end">
-              <Text color={frame}>{dot} </Text>
-              {clip(title, Math.max(4, inner - 3 - cells(right)))}
-            </Text>
-            <Text dimColor>{right}</Text>
-          </Box>
-          {!isTicketCard && (
-            <Text dimColor wrap="truncate-end">
-              {clip(
-                `${PHASE_LABEL[a.phase]} · ${a.tools} 次工具${isRunning && a.lastTool ? ` · ${a.lastTool}` : ''}`,
-                inner,
-              )}
-            </Text>
-          )}
-          {isTicketCard && (isRunning || isFailed) && (
-            <Text wrap="truncate-end">
-              <Text color={frame}>{bar(percent, barW)}</Text>
-              <Text dimColor> {String(percent).padStart(3)}% </Text>
-              {!isNarrow && <Text>{PHASE_LABEL[a.phase]}</Text>}
-            </Text>
-          )}
-          {isTicketCard && (isRunning || isFailed) && (
-            <Text dimColor wrap="truncate-end">
-              {clip(a.lastTool ?? '…', inner)}
-            </Text>
-          )}
+      <Box
+        key={a.id}
+        flexDirection="column"
+        width={cardW}
+        borderStyle="round"
+        borderColor={frame}
+        paddingX={1}
+      >
+        <Box justifyContent="space-between">
+          <Text bold={isFailed} wrap="truncate-end">
+            <Text color={frame}>{dot} </Text>
+            {clip(title, Math.max(4, inner - 3 - cells(right)))}
+          </Text>
+          <Text dimColor>{right}</Text>
         </Box>
-        {beeAt !== undefined && (
-          <Box position="absolute" top={0} left={beeAt}>
-            <Text>{BEE}</Text>
-          </Box>
+        {!isTicketCard && (
+          <Text dimColor wrap="truncate-end">
+            {clip(
+              `${PHASE_LABEL[a.phase]} · ${a.tools} 次工具${isRunning && a.lastTool ? ` · ${a.lastTool}` : ''}`,
+              inner,
+            )}
+          </Text>
+        )}
+        {isTicketCard && (isRunning || isFailed) && (
+          <Text wrap="truncate-end">
+            <Text color={frame}>{bar(percent, barW)}</Text>
+            <Text dimColor> {String(percent).padStart(3)}% </Text>
+            {!isNarrow && <Text>{PHASE_LABEL[a.phase]}</Text>}
+          </Text>
+        )}
+        {isTicketCard && (isRunning || isFailed) && (
+          <Text dimColor wrap="truncate-end">
+            {clip(a.lastTool ?? '…', inner)}
+          </Text>
         )}
       </Box>
     )
@@ -190,12 +171,7 @@ export function drawPane(
     : ` ${String(featurePercent).padStart(3)}%  ${doneCount}/${tickets.length} 票 · step ${Math.min(currentStep, stepCount)}/${stepCount}`
   const featureBarW = Math.max(6, boxInner - cells(featureTail))
   const isSweeping = isAnimated && live.length > 0 && featurePercent > 0 && featurePercent < 100
-  // The lead is the hive: it counts the bees that came home.
-  const leadTally = [
-    `已派 ${s.agents.length}`,
-    model.finishedAgentCount > 0 ? `${BEE} ${model.finishedAgentCount}` : '',
-    isWorkflowView ? `已 merge ${model.mergedCount}` : '',
-  ].filter(Boolean).join(' · ')
+  const leadTally = isWorkflowView ? `已派 ${s.agents.length} · 已 merge ${model.mergedCount}` : `已派 ${s.agents.length}`
   // Narrow, a log line names its ticket by number alone.
   const whoW = isNarrow ? 4 : 14
   const who = (name: string) => {
