@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { AgentPhase, SwarmAgent } from '../types'
 import { phaseOfCall } from '../hooks/agent-phase'
-import { BEE_LAP_MS, beeLeft, returnLeft, returnProgress, sweptBar } from '../hooks/animation'
+import { sweptBar } from '../hooks/animation'
 import { bar as barOf, cells, clip } from '../hooks/text-format'
 
 // The pane's pure functions on their own: no pane, no plugin, no mock.
@@ -123,41 +123,8 @@ test('sweptBar at 0 percent is only empty cells', () => {
   expect(sweptBar(0, 10, 777)).toEqual([{ text: '░'.repeat(10) }])
 })
 
-// ------------------------------------------------------------ the bee
-
-test('cells counts the bee as two', () => {
-  expect(cells('🐝')).toBe(2)
-  expect(cells('已派 3 · 🐝 2')).toBe(cells('已派 3 · ') + 2 + cells(' 2'))
-  expect(clip('🐝🐝🐝', 5)).toBe('🐝🐝…')
-})
-
-test('beeLeft flies out and back over the span, always inside it', () => {
-  const span = 10
-  const lefts = Array.from({ length: 100 }, (_, i) => beeLeft(i * 60, span))
-  expect(Math.min(...lefts)).toBe(0)
-  expect(Math.max(...lefts)).toBe(span)
-  expect(lefts.every(n => Number.isInteger(n) && n >= 0 && n <= span)).toBe(true)
-  // it turns around: rises first, then falls, one lap later it is where it started
-  expect(beeLeft(BEE_LAP_MS / 2, span)).toBe(span)
-  expect(beeLeft(BEE_LAP_MS / 4, span)).toBeGreaterThan(beeLeft(0, span))
-  expect(beeLeft((BEE_LAP_MS * 3) / 4, span)).toBeLessThan(span)
-  expect(beeLeft(BEE_LAP_MS, span)).toBe(beeLeft(0, span))
-})
-
-test('returnProgress runs from 0 at the finish to 1 a second later, and stays 1', () => {
-  expect(returnProgress(5000, 5000)).toBe(0)
-  expect(returnProgress(5500, 5000)).toBe(0.5)
-  expect(returnProgress(6000, 5000)).toBe(1)
-  expect(returnProgress(60_000, 5000)).toBe(1)
-})
-
-test('returnLeft carries the bee from where it was to past the card edge', () => {
-  const span = 10
-  const endedAt = 1234
-  const edge = 14
-  expect(returnLeft(endedAt, endedAt, span, edge)).toBe(beeLeft(endedAt, span))
-  expect(returnLeft(endedAt + 1000, endedAt, span, edge)).toBe(edge)
-  const mid = returnLeft(endedAt + 500, endedAt, span, edge)
-  expect(mid).toBeGreaterThanOrEqual(Math.min(beeLeft(endedAt, span), edge))
-  expect(mid).toBeLessThanOrEqual(edge)
+test('cells counts an emoji as two', () => {
+  expect(cells('🚀')).toBe(2)
+  expect(cells('已派 3 · 🚀 2')).toBe(cells('已派 3 · ') + 2 + cells(' 2'))
+  expect(clip('🚀🚀🚀', 5)).toBe('🚀🚀…')
 })
