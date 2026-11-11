@@ -5,7 +5,7 @@
 import type { EngineInterface } from 'claude-code'
 
 import type { Swarm, SwarmAgent } from '../types'
-import { ACCENT } from './accent'
+import { ACCENT, DONE } from './accent'
 import { spinnerAt, sweptBar } from './animation'
 import { PHASE_PERCENT, isLive } from './agent-phase'
 import { say } from './i18n'
@@ -50,7 +50,7 @@ export function drawPane(
   // A ticket is `running` only with a live subagent behind it, so its glyph turns with that card's.
   const liveGlyph = isAnimated ? spinnerAt(now) : '●'
   const stateGlyph = { merged: '◆', resolved: '✓', running: liveGlyph, failed: '✗', ready: '○', blocked: '·' } as const
-  const stateColor = { merged: 'success', resolved: 'success', running: 'warning', failed: 'error', ready: 'text', blocked: 'subtle' } as const
+  const stateColor = { merged: DONE, resolved: DONE, running: 'warning', failed: 'error', ready: 'text', blocked: 'subtle' } as const
 
   // One row per step. The step being worked spells its tickets out (title,
   // acceptance count); the others are a glyph and a number each.
@@ -65,7 +65,7 @@ export function drawPane(
     return (
       <Box key={`step-${step}`} flexDirection="row">
         <Box width={labelW}>
-          <Text color={isCurrent ? 'warning' : isPast ? 'success' : undefined} dimColor={!isCurrent && !isPast} bold={isCurrent}>
+          <Text color={isCurrent ? 'warning' : isPast ? DONE : undefined} dimColor={!isCurrent && !isPast} bold={isCurrent}>
             {isNarrow ? `${mark} ${step}` : `${mark} step ${step}`}
           </Text>
         </Box>
@@ -101,7 +101,7 @@ export function drawPane(
     const isTicketCard = isWorkflowView && a.ticket !== undefined
     const isRunning = isLive(a)
     const isFailed = a.phase === 'failed'
-    const frame = isFailed ? 'error' : a.phase === 'done' ? 'success' : 'warning'
+    const frame = isFailed ? 'error' : a.phase === 'done' ? DONE : 'warning'
     const dot = isFailed ? '✗' : a.phase === 'done' ? '✓' : liveGlyph
     const percent = PHASE_PERCENT[a.phase]
     const elapsed = fmtDuration((a.endedAt ?? now) - a.startedAt)
@@ -168,7 +168,7 @@ export function drawPane(
   // The workflow's own line: which workflow, and which ticket source the project names.
   const statusLine = workflow ? workflowLine(strings, workflow, s) : undefined
 
-  const featureColor = isFeatureDone ? 'success' : ACCENT
+  const featureColor = isFeatureDone ? DONE : ACCENT
   const featureTail = isNarrow
     ? ` ${String(featurePercent).padStart(3)}% ${doneCount}/${tickets.length}`
     : strings.featureTail(String(featurePercent).padStart(3), doneCount, tickets.length, Math.min(currentStep, stepCount), stepCount)

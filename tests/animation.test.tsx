@@ -96,9 +96,10 @@ const barOf = async ($: any, bodyColumns = 80): Promise<Run[]> => {
   return runs
 }
 const ACCENT = '#c084fc'
+const DONE = '#b6d7a8'
 const GLOW_PEAK = '#f3e8ff'
 /** A tinted cell: any `#rrggbb` but the accent, which is the bar's own color. */
-const isTint = (color: string) => color.startsWith('#') && color !== ACCENT
+const isTint = (color: string) => color.startsWith('#') && color !== ACCENT && color !== DONE
 const isLit = (run: Run) => isTint(run.color)
 const cellsOf = (runs: Run[]) => runs.flatMap(run => [...run.text].map(ch => ({ ch, color: run.color })))
 /** How bright a tint is: its channels summed. */
@@ -332,7 +333,7 @@ test('animation off, the whole bar is the accent', OFF, async ($, on) => {
   expect(filled[0]!.color).toBe(ACCENT)
 })
 
-test('a finished feature has its frame and bar in success, not the accent', ON, async ($, on) => {
+test('a finished feature has its frame and bar in the done color, not the accent', ON, async ($, on) => {
   engine(on)
   const original = TICKETS['02-api.md']!
   const original3 = TICKETS['03-page.md']!
@@ -343,7 +344,7 @@ test('a finished feature has its frame and bar in success, not the accent', ON, 
     await $.tool.call({ tool: 'Skill', skill: 'mattpocock-skills:implement-spec', args: '.scratch/demo/spec.md' } as never)
 
     const bar = (await barOf($)).filter(run => run.text.includes('█'))
-    expect(bar.map(run => run.color)).toEqual(['success'])
+    expect(bar.map(run => run.color)).toEqual([DONE])
     // title, feature, lead and its frame are still the accent
     expect((await drawnText($)).split(`"${ACCENT}"`).length - 1).toBe(4)
   } finally {
@@ -398,4 +399,33 @@ test('no frame is drawn for a pane that is not the one shown, or with nothing li
   await clock.advance(2000)
   await clock.settle()
   expect(world.invalidations).toBe(0)
+})
+
+// ------------------------------------------------------------ the done color
+
+/** How many times a drawn tree names the color. */
+const count = (text: string, color: string) => text.split(`"${color}"`).length - 1
+
+test('a resolved ticket and a past step are drawn in the done color, never `success`', ON, async ($, on) => {
+  engine(on)
+  await start($)
+  await $.tool.call({ tool: 'Skill', skill: 'mattpocock-skills:implement-spec', args: '.scratch/demo/spec.md' } as never)
+
+  const text = await drawnText($)
+  // step 1's label, plus ticket 01's glyph and number
+  expect(count(text, DONE)).toBeGreaterThanOrEqual(2)
+  expect(text).not.toContain('"success"')
+})
+
+test('a finished subagent card has its frame and dot in the done color', OBSERVE, async ($, on) => {
+  engine(on)
+  await start($)
+  await spawn($, '看看', '探索', 'Explore')
+  expect(count(await drawnText($), DONE)).toBe(0)
+
+  await finish($, 'agent-1')
+  const text = await drawnText($)
+  // the frame and the dot
+  expect(count(text, DONE)).toBe(2)
+  expect(text).not.toContain('"success"')
 })
