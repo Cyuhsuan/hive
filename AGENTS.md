@@ -1,3 +1,7 @@
+## README
+
+`README.md` (English) is the source of truth; `README.zh-TW.md` and `README.ja.md` are translations of it. Change all three together, keeping the headings, tables, code blocks and image paths in step. Panel text quoted in a README is copied from that language's string table in `hooks/strings-*.ts`.
+
 ## Agent skills
 
 ### Issue tracker

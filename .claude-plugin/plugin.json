@@ -1,7 +1,7 @@
 {
   "name": "hive",
   "version": "0.9.0",
-  "description": "子代理面板：預設只觀察子代理的動作與結果；選用 mattpocock-skills 工作流時，再畫出票、時間步與進度。",
+  "description": "Subagent pane: by default it only observes what subagents do and how they end; with the mattpocock-skills workflow it also draws tickets, steps and progress.",
   "types": "./types/index.d.ts",
   "license": "MIT",
   "author": {
