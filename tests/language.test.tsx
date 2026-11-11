@@ -354,3 +354,69 @@ test('the state keeps codes and arguments, not the words of the language it was 
   expect(kept).not.toContain('票來源讀取失敗')
   expect(kept).not.toContain('派出')
 })
+
+// ------------------------------------------------- a running card's progress line
+
+const PHASE_NAMES = {
+  en: { spawned: 'starting', reading: 'reading', editing: 'editing', testing: 'testing', merging: 'merging', committing: 'committing', reviewing: 'reviewing', failed: 'failed' },
+  'zh-TW': { spawned: '啟動中', reading: '讀碼', editing: '改碼', testing: '測試', merging: 'merge', committing: 'commit', reviewing: '審查', failed: '失敗' },
+  ja: { spawned: '起動中', reading: '読込中', editing: '編集中', testing: 'テスト中', merging: 'マージ中', committing: 'コミット中', reviewing: 'レビュー中', failed: '失敗' },
+} as const
+
+/** The texts of the progress lines drawn: a bar, its percent, then the phase. */
+const progressLines = (node: Node, names: Record<string, string>, found: string[] = []): string[] => {
+  if (typeof node === 'string') return found
+  if (node.type === 'Text' && /^[█░]+ +\d+% /.test(textOf(node)) && Object.values(names).some(n => textOf(node).endsWith(n))) found.push(textOf(node))
+  for (const kid of node.children ?? []) progressLines(kid, names, found)
+  return found
+}
+
+for (const language of LANGUAGES) {
+  test(`${language}: at 84 columns every phase name is whole on the progress line, with the same bar throughout`, optionsOf(language), async ($, on) => {
+    const world = newWorld()
+    engine(on, world)
+    await start($)
+    await $.tool.call({ tool: 'Skill', skill: 'mattpocock-skills:implement-spec', args: '.scratch/f/spec.md' } as never)
+    await spawn($, '實作 .scratch/f/issues/02-api.md', '第 2 張票', 'ticket-implementer')
+    const names = PHASE_NAMES[language]
+    const barLengths = new Set<number>()
+    const seen: string[] = []
+    const check = async (phase: keyof typeof names) => {
+      const ui = await mount($, 84)
+      const lines = progressLines((await ui.drawn()) as Node, names)
+      await ui.unmount()
+      expect(lines).toHaveLength(1)
+      const line = lines[0]!
+      expect(line.endsWith(names[phase])).toBe(true)
+      expect(cells(line)).toBeLessThanOrEqual(36)
+      barLengths.add(/^[█░]+/.exec(line)![0].length)
+      seen.push(phase)
+    }
+    await check('spawned')
+    const call = (tool: string, args: Record<string, unknown>) => $.tool.call({ tool, ...args, agentId: 'agent-1' } as never)
+    await call('Read', { file_path: '/repo/a.ts' })
+    await check('reading')
+    await call('Edit', { file_path: '/repo/a.ts', old_string: 'a', new_string: 'b' })
+    await check('editing')
+    await call('Bash', { command: 'npm test' })
+    await check('testing')
+    await call('Bash', { command: 'git merge main' })
+    await check('merging')
+    await call('Bash', { command: 'git commit -m x' })
+    await check('committing')
+    await $.turn.complete({ agentId: 'agent-1', reason: 'error', isAborted: false, durationMs: 1000, answer: 'x' } as never)
+    await check('failed')
+    await spawn($, '審查 .scratch/f/issues/02-api.md', '審查第 2 張票', 'code-reviewer')
+    await $.tool.call({ tool: 'Read', file_path: '/repo/a.ts', agentId: 'agent-2' } as never)
+    {
+      const ui = await mount($, 84)
+      const lines = progressLines((await ui.drawn()) as Node, names)
+      await ui.unmount()
+      expect(lines.some(l => l.endsWith(names.reviewing) && cells(l) <= 36)).toBe(true)
+    }
+    expect(seen).toHaveLength(7)
+    // one bar length for the language's every card; zh-TW's stays 24 cells
+    expect(barLengths.size).toBe(1)
+    if (language === 'zh-TW') expect([...barLengths]).toEqual([24])
+  })
+}

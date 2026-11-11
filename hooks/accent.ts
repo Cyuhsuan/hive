@@ -1,5 +1,5 @@
-// The pane's accent: the color of its title, the feature and the lead. Fixed
-// rather than the theme's `claude`, so the pane matches the README's picture.
+// The pane's fixed colors, not the theme's, so the pane matches the README's
+// picture. The accent is the color of its title, the feature and the lead.
 
 export const ACCENT = '#c084fc'
 

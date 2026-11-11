@@ -1,14 +1,11 @@
 import { expect, test } from 'claude-code/testing'
 
 import { githubSource } from '../hooks/github-source'
-import { say } from '../hooks/i18n'
-import { zhTW } from '../hooks/strings-zh-TW'
-import type { Say } from '../types'
-
-/** What a source says, in the zh-TW words the pane has always used. */
-const zh = (value: Say | undefined): string => say(zhTW, value)
-const reasonOf = (r: { ok: boolean; reason?: Say }): string | undefined => (r.ok ? undefined : zh(r.reason))
 import type { SourceEnv } from '../hooks/ticket-source'
+import type { Say } from '../types'
+import { zh } from './zh'
+
+const reasonOf = (r: { ok: boolean; reason?: Say }): string | undefined => (r.ok ? undefined : zh(r.reason))
 
 // The GitHub source on its own, with a fake `gh`: the replies below have the
 // shape `gh api repos/<owner>/<repo>/issues/<n>` (and its `/sub_issues` and

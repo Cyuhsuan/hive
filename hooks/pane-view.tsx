@@ -95,6 +95,7 @@ export function drawPane(
   const cols = Math.max(1, Math.floor((W - 1) / 35))
   const cardW = Math.max(WIDTH_MIN - 2, Math.floor((W - 2 - (cols - 1)) / cols))
   const inner = cardW - 4
+  const phaseW = Math.max(...Object.values(strings.phase).map(cells))
 
   const card = (a: SwarmAgent) => {
     // A card with a ticket is the workflow's; any other is the observing one.
@@ -118,7 +119,8 @@ export function drawPane(
       t && !isNarrow ? `step ${t.step}` : '',
       elapsed,
     ].filter(Boolean).join(' ')
-    const barW = Math.max(4, inner - 12)
+    // The bar leaves room for a percent (6 cells) and the longest phase name.
+    const barW = Math.max(4, inner - 6 - phaseW)
 
     return (
       <Box

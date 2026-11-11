@@ -1,15 +1,10 @@
 import { expect, test } from 'claude-code/testing'
 
 import { githubSource } from '../hooks/github-source'
-import { say } from '../hooks/i18n'
-import { zhTW } from '../hooks/strings-zh-TW'
-import type { Say } from '../types'
-
-/** What a source says, in the zh-TW words the pane has always used. */
-const zh = (value: Say | undefined): string => say(zhTW, value)
 import { markdownSource, mergedBranches, parseTicket, ticketName } from '../hooks/ticket-source'
 import type { SourceEnv } from '../hooks/ticket-source'
 import { TRACKER_FILE, mattpocockSkills, sourceById, workflowOf } from '../hooks/workflow'
+import { spoken, zh } from './zh'
 
 // The ticket source is exercised on its own here: no pane, no plugin, only the
 // small environment (files and a clock) it is handed.
@@ -323,7 +318,7 @@ test('workflow: the title is the first non-blank line, trimmed, in any spacing a
 
 test('workflow: a tracker the workflow cannot read says why', async () => {
   const gitlab = await mattpocockSkills.chooseSource(reading('# Issue tracker: GitLab\n'))
-  expect([zh(gitlab.label), zh(gitlab.source ? undefined : gitlab.reason)]).toEqual(['GitLab（尚未支援）', '票在 GitLab，尚未支援'])
+  expect(spoken(gitlab)).toEqual({ label: 'GitLab（尚未支援）', reason: '票在 GitLab，尚未支援' })
   const other = await mattpocockSkills.chooseSource(reading('# Something else\n'))
-  expect([zh(other.label), zh(other.source ? undefined : other.reason)]).toEqual(['無法辨識', `${TRACKER_FILE} 的標題無法辨識票來源`])
+  expect(spoken(other)).toEqual({ label: '無法辨識', reason: `${TRACKER_FILE} 的標題無法辨識票來源` })
 })
