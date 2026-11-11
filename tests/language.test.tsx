@@ -1,6 +1,12 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+import { isSameSay, msg, stringsOf } from '../hooks/i18n'
+import { en } from '../hooks/strings-en'
+import { ja } from '../hooks/strings-ja'
+import { zhTW } from '../hooks/strings-zh-TW'
 import { cells } from '../hooks/text-format'
+
+const DONE_COLOR = '#b6d7a8'
 
 // The `language` setting: what the pane says in English (the default),
 // 繁體中文 and 日本語, that the skeleton and what is read in stay as they are,
@@ -420,3 +426,72 @@ for (const language of LANGUAGES) {
     if (language === 'zh-TW') expect([...barLengths]).toEqual([24])
   })
 }
+
+// ------------------------------------------- the words chosen, and said once
+
+test('stringsOf: a listed language is its table; anything else is English', () => {
+  expect(stringsOf('zh-TW')).toBe(zhTW)
+  expect(stringsOf('ja')).toBe(ja)
+  expect(stringsOf('en')).toBe(en)
+  for (const other of [undefined, null, 'fr', '', 'toString', '__proto__', 7, {}]) expect(stringsOf(other)).toBe(en)
+})
+
+test('isSameSay: the same message, or the same text, is one saying; nothing else is', () => {
+  const a = msg('ghNotLoggedIn')
+  expect(isSameSay(a, msg('ghNotLoggedIn'))).toBe(true)
+  expect(isSameSay('text', 'text')).toBe(true)
+  expect(isSameSay(undefined, undefined)).toBe(true)
+  expect(isSameSay(a, msg('ghOffline'))).toBe(false)
+  expect(isSameSay('text', 'other')).toBe(false)
+  expect(isSameSay(a, undefined)).toBe(false)
+})
+
+test('the same failure to read the tickets, again and again, is logged once', optionsOf('en'), async ($, on) => {
+  const world = newWorld('# Issue tracker: GitHub\n')
+  world.ghFails = true
+  engine(on, world)
+  await start($)
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Skill', skill: 'mattpocock-skills:implement-spec', args: '#10' } as never)
+  const ui = await mount($)
+  const text = await drawnText(ui)
+  expect(text.split('ticket source read failed: ').length - 1).toBe(1)
+  await ui.unmount()
+})
+
+// ------------------------------------------- what the engine would not catch
+
+/** Every node, anywhere below, that the test accepts. */
+const findAll = (node: Node, pick: (n: Exclude<Node, string>) => boolean, found: Exclude<Node, string>[] = []) => {
+  if (typeof node === 'string') return found
+  if (pick(node)) found.push(node)
+  for (const kid of node.children ?? []) findAll(kid, pick, found)
+  return found
+}
+
+for (const language of LANGUAGES) {
+  test(`${language}: the lead row's hint and tally fit the frame from 44 down to 40 columns, the hint cut to make room`, optionsOf(language), async ($, on) => {
+    const world = newWorld()
+    engine(on, world)
+    await busySession($)
+    for (const bodyColumns of [44, 43, 42, 41, 40]) {
+      const ui = await mount($, bodyColumns)
+      const rows = findAll((await ui.drawn()) as Node, n => n.type === 'Box' && (n.children ?? []).some(k => typeof k !== 'string' && textOf(k) === SAYS[language].tally))
+      expect(rows).toHaveLength(1)
+      const [hint, tally] = rows[0]!.children as Node[]
+      expect(cells(textOf(hint!)) + cells(textOf(tally!))).toBeLessThanOrEqual(bodyColumns - 4)
+      await ui.unmount()
+    }
+  })
+}
+
+test('a ticket merged but not yet resolved is a ◆ in the done color; a resolved one is a ✓ in it', optionsOf('en'), async ($, on) => {
+  const world = newWorld()
+  engine(on, world)
+  await busySession($)
+  const ui = await mount($)
+  const tree = (await ui.drawn()) as Node
+  const colorsOf = (text: string) => findAll(tree, n => n.type === 'Text' && textOf(n) === text).map(n => n.props?.['color'])
+  expect(colorsOf('◆02')).toEqual([DONE_COLOR])
+  expect(colorsOf('✓01')).toEqual([DONE_COLOR])
+  await ui.unmount()
+})
